@@ -1,0 +1,365 @@
+__author__ = "Michael R. Falcone"
+__version__ = "0.1"
+
+"""
+
+
+"""
+
+import struct
+from math import ceil
+
+class InvalidImageFormatError(Exception):
+  """Thrown when the format of the disk image does not match the filesystem."""
+  pass
+
+
+class BlockGroupReport(object):
+  """Contains information about the filesystem's block groups."""
+  pass
+
+
+class IntegrityReport(object):
+  """Contains the results of an integrity check on the filesystem."""
+  pass
+
+
+class Ext2Disk(object):
+  """Models a disk image within a file formatted to the ext2 filesystem."""
+  _actionProgress = 0
+  
+  class __Superblock:
+    pass
+  class __BGroupDescriptorTable:
+    pass
+  class __BGroupDescriptorEntry:
+    pass
+  class __Inode:
+    pass
+  
+  
+  # PUBLIC PROPERTIES / METHODS ------------------------------------
+  
+  @property
+  def revision(self):
+    """Gets the filesystem revision as a string formatted as MAJOR.MINOR."""
+    return "{0}.{1}".format(self._superblock.rev_level, self._superblock.rev_minor)
+  
+  @property
+  def totalSpace(self):
+    """Gets the total filesystem size in bytes."""
+    return self._superblock.block_size * self._superblock.num_blocks
+  
+  @property
+  def freeSpace(self):
+    """Gets the number of free bytes."""
+    return self._superblock.block_size * self._superblock.num_free_blocks
+  
+  @property
+  def usedSpace(self):
+    """Gets the number of used bytes."""
+    return self.totalSpace - self.freeSpace
+  
+  @property
+  def blockSize(self):
+    """Gets the block size in bytes."""
+    return self._superblock.block_size
+  
+  @property
+  def numBlockGroups(self):
+    """Gets the number of block groups."""
+    return len(self._bgroupDescTable.entries)
+  
+  @property
+  def numInodes(self):
+    """Gets the total number of inodes."""
+    return self._superblock.num_inodes
+  
+  
+  @property
+  def actionProgress(self):
+    """Gets the current disk action progress as a percentage (0-100).
+    Action is complete when progress reaches 100."""
+    return self._actionProgress
+  
+  def resetActionProgress(self):
+    """Sets the action progress to 0 until the next progress increase."""
+    self._actionProgress = 0
+  
+  
+  def __init__(self, filename):
+    """Constructs a new ext2 disk from the specified image file. Raises an
+    exception if the disk image is not formatted to ext2."""
+    self._filename = filename
+    try:
+      self._superblock = self.__readSuperblock(1024)
+      self._bgroupDescTable = self.__readBGroupDescriptorTable(self._superblock)
+    except:
+      raise InvalidImageFormatError()
+    
+    
+    rootInode = self.__readInode(2)
+    
+    import inspect
+    for k,v in inspect.getmembers(rootInode):
+      print "{0} -->    {1}".format(k,v)
+    
+  
+  
+  
+  def scanBlockGroups(self):
+    """Scans all block groups and returns information about them."""
+    report = BlockGroupReport()
+    
+    report.numFiles = 0
+    report.numDirs = 0
+    
+    for i,entry in enumerate(self._bgroupDescTable.entries):
+      #inodes = self.__readUsedInodesFromBGroup(i)
+      pass
+      
+    
+    
+    return report
+  
+  
+  
+  
+  def checkIntegrity(self):
+    """Evaluates the integrity of the filesystem and generates a report."""
+    report = IntegrityReport()
+    self.resetActionProgress()
+    
+    for i in range(1000000):
+      self._actionProgress = int(float(i) / 1000000 * 100)
+    self._actionProgress = 100
+    
+    return report
+  
+  
+  
+  
+  # PRIVATE METHODS ------------------------------------
+  
+  def __readSuperblock(self, startPos):
+    """Reads the superblock at the specified position in bytes."""
+    with open(self._filename, "rb") as f:
+      f.seek(startPos)
+      sbBytes = f.read(1024)
+    if len(sbBytes) < 1024:
+      raise Exception("Invalid superblock.")
+    
+    sb = self.__Superblock()
+    
+    # read standard fields
+    fields = struct.unpack_from("<7Ii5I6H4I2H", sbBytes)
+    sb.num_inodes = fields[0]
+    sb.num_blocks = fields[1]
+    sb.num_res_blocks = fields[2]
+    sb.num_free_blocks = fields[3]
+    sb.num_free_inodes = fields[4]
+    sb.first_block_id = fields[5]
+    sb.block_size = 1024 << fields[6]
+    if fields[7] > 0:
+      sb.frag_size = 1024 << fields[7]
+    else:
+      sb.frag_size = 1024 >> fields[7]
+    sb.num_blocks_per_group = fields[8]
+    sb.num_frags_per_group = fields[9]
+    sb.num_inodes_per_group = fields[10]
+    sb.time_last_mount = fields[11]
+    sb.time_last_write = fields[12]
+    sb.num_mounts_since_ck = fields[13]
+    sb.num_mounts_max = fields[14]
+    sb.magic_number = fields[15]
+    if fields[16] == 1:
+      sb.state = "VALID"
+    else:
+      sb.state = "ERROR"
+    if fields[17] == 1:
+      sb.error_action = "CONTINUE"
+    elif fields[17] == 2:
+      sb.error_action = "RO"
+    else:
+      sb.error_action = "PANIC"
+    sb.rev_minor = fields[18]
+    sb.time_last_ck = fields[19]
+    sb.time_between_ck = fields[20]
+    if fields[21] == 0:
+      sb.creator_os = "LINUX"
+    elif fields[21] == 1:
+      sb.creator_os = "HURD"
+    elif fields[21] == 2:
+      sb.creator_os = "MASIX"
+    elif fields[21] == 3:
+      sb.creator_os = "FREEBSD"
+    elif fields[21] == 4:
+      sb.creator_os = "LITES"
+    else:
+      sb.creator_os = "UNDEFINED"
+    sb.rev_level = fields[22]
+    sb.def_uid_res = fields[23]
+    sb.def_gid_res = fields[24]
+    
+    # read additional fields
+    fields = struct.unpack_from("<I2H3I16s16s64sI2B2x16s3I4IB3x2I", sbBytes, 84)
+    sb.first_inode_index = fields[0]
+    sb.inode_size = fields[1]
+    sb.superblock_group_nr = fields[2]
+    sb.compat_feature_bitmask = fields[3]
+    sb.incompat_feature_bitmask = fields[4]
+    sb.rocompat_feature_bitmask = fields[5]
+    sb.vol_id = fields[6].rstrip('\0')
+    sb.vol_name = fields[7].rstrip('\0')
+    sb.last_mount_path = fields[8].rstrip('\0')
+    if fields[9] == 1:
+      sb.compression_algo = "LZV1"
+    elif fields[9] == 2:
+      sb.compression_algo = "LZRW3A"
+    elif fields[9] == 4:
+      sb.compression_algo = "GZIP"
+    elif fields[9] == 8:
+      sb.compression_algo = "BZIP2"
+    elif fields[9] == 16:
+      sb.compression_algo = "LZO"
+    else:
+      sb.compression_algo = "UNDEFINED"
+    sb.num_prealloc_blocks_file = fields[10]
+    sb.num_prealloc_blocks_dir = fields[11]
+    sb.journal_superblock_uuid = fields[12].rstrip('\0')
+    sb.journal_file_inode_num = fields[13]
+    sb.journal_file_dev = fields[14]
+    sb.last_orphan_inode_num = fields[15]
+    sb.hash_seeds = []
+    sb.hash_seeds.append(fields[16])
+    sb.hash_seeds.append(fields[17])
+    sb.hash_seeds.append(fields[18])
+    sb.hash_seeds.append(fields[19])
+    sb.def_hash_ver = fields[20]
+    sb.def_mount_options = fields[21]
+    sb.first_meta_bgroup_id = fields[22]
+    
+    return sb
+  
+  
+  def __readBGroupDescriptorTable(self, superblock):
+    """Reads the block group descriptor table following the specified superblock."""
+    startPos = (superblock.first_block_id + 1) * superblock.block_size
+    numGroups = int(ceil(superblock.num_blocks / superblock.num_blocks_per_group))
+    tableSize = numGroups * 32
+    
+    with open(self._filename, "rb") as f:
+      f.seek(startPos)
+      bgdtBytes = f.read(tableSize)
+    if len(bgdtBytes) < tableSize:
+      raise Exception("Invalid block group descriptor table.")
+    
+    bgdt = self.__BGroupDescriptorTable()
+    bgdt.entries = []
+    
+    for i in range(numGroups):
+      fields = struct.unpack_from("<3I3H", bgdtBytes, i*32)
+      entry = self.__BGroupDescriptorEntry()
+      entry.bid_block_bitmap = fields[0]
+      entry.bid_inode_bitmap = fields[1]
+      entry.bid_inode_table = fields[2]
+      entry.num_free_blocks = fields[3]
+      entry.num_free_inodes = fields[4]
+      entry.num_inodes_as_dirs = fields[5]
+      bgdt.entries.append(entry)
+    
+    return bgdt
+  
+  
+  
+  def __readInode(self, inodeNum):
+    """Reads the specified inode. Ignores fragments, generation, and ACL data."""
+    bgroupNum = (inodeNum - 1) / self._superblock.num_inodes_per_group
+    bgroupIndex = (inodeNum - 1) % self._superblock.num_inodes_per_group
+    bgroupDescEntry = self._bgroupDescTable.entries[bgroupNum]
+    
+    bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
+    bitmapByteIndex = bgroupIndex / 8
+    usedTest = 1 << (bgroupIndex % 8)
+    
+    tableStartPos = bgroupDescEntry.bid_inode_table * self._superblock.block_size
+    inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inode_size)
+    
+    with open(self._filename, "rb") as f:
+      f.seek(bitmapStartPos + bitmapByteIndex)
+      bitmapByte = struct.unpack("B", f.read(1))[0]
+      f.seek(inodeStartPos)
+      inodeBytes = f.read(self._superblock.inode_size)
+    if bitmapByte & usedTest == 0:
+      raise Exception("Inode not in use.")
+    if len(inodeBytes) < self._superblock.inode_size:
+      raise Exception("Invalid inode.")
+    
+    if self._superblock.rev_level == 0:
+      fields = struct.unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
+    else:
+      fields = struct.unpack_from("<2H5IHh4xI4x15I8xI", inodeBytes)
+    
+    if self._superblock.creator_os == "LINUX":
+      osFields = struct.unpack_from("<4x2H", inodeBytes, 116)
+    elif self._superblock.creator_os == "HURD":
+      osFields = struct.unpack_from("<2x3H", inodeBytes, 116)
+    
+    inode = self.__Inode()
+    inode.num = inodeNum
+    inode.mode = fields[0]
+    inode.uid = fields[1]
+    inode.size = fields[2]
+    inode.time_accessed = fields[3]
+    inode.time_created = fields[4]
+    inode.time_modified = fields[5]
+    inode.time_deleted = fields[6]
+    inode.gid = fields[7]
+    inode.num_links = fields[8]
+    inode.flags = fields[9]
+    inode.blocks = []
+    for i in range(15):
+      inode.blocks.append(fields[10+i])
+    if self._superblock.rev_level > 0:
+      inode.size |= (fields[25] << 32)
+    if self._superblock.creator_os == "LINUX":
+      inode.uid |= (osFields[0] << 16)
+      inode.gid |= (osFields[1] << 16)
+    elif self._superblock.creator_os == "HURD":
+      inode.mode |= (osFields[0] << 16)
+      inode.uid |= (osFields[1] << 16)
+      inode.gid |= (osFields[2] << 16)
+    
+    return inode
+  
+  
+  
+  
+  
+  
+  
+#   def __readUsedInodesFromBGroup(self, bgroupNum):
+#     entry = self._bgroupDescTable.entries[bgroupNum]
+#     
+#     tableStartPos = entry.bid_inode_table * self._superblock.block_size
+#     tableSize = self._superblock.inode_size * self._superblock.num_inodes_per_group
+#     
+#     with open(self._filename, "rb") as f:
+#       f.seek(startPos)
+#       bgdtBytes = f.read(tableSize)
+#     if len(bgdtBytes) < tableSize:
+#       raise Exception("Invalid block group descriptor table.")
+#     
+#     tableBid = 
+#     
+#     
+#     inodes = []
+#     return inodes
+
+
+
+
+
+
+
+
