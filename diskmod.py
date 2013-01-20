@@ -5,23 +5,159 @@ __version__ = "0.1"
 Module for reading and checking an ext2 disk image.
 """
 
-import struct
+from struct import unpack, unpack_from
 from math import ceil
+from time import localtime, strftime
+
 
 class InvalidImageFormatError(Exception):
   """Thrown when the format of the disk image does not match the filesystem."""
   pass
 
+class InvalidFileTypeError(Exception):
+  """Thrown when a file object does not have the proper type for the
+  requested operation."""
+  pass
+
+class UnsupportedOperationError(Exception):
+  """Thrown when the filesystem does not support the requested operation."""
+  pass
 
 class BlockGroupReport(object):
   """Contains information about the filesystem's block groups."""
   pass
 
-
 class IntegrityReport(object):
   """Contains the results of an integrity check on the filesystem."""
   pass
 
+
+
+
+
+# ====== EXT2 FILE ================================================
+
+class Ext2File(object):
+  """Represents a file or directory on the ext2 filesystem."""
+  
+  @property
+  def name(self):
+    """Gets the name of this file on the filesystem."""
+    return self._name
+  
+  @property
+  def inodeNum(self):
+    """Gets the inode number of this file on the filesystem."""
+    return self._inode.num
+  
+  @property
+  def isDir(self):
+    """Gets whether the file object is a directory."""
+    return (self._inode.mode & 0x4000) != 0
+  
+  @property
+  def isRegular(self):
+    """Gets whether the file object is a regular file."""
+    return (self._inode.mode & 0x8000) != 0
+  
+  @property
+  def isSymlink(self):
+    """Gets whether the file object is a symbolic link."""
+    return (self._inode.mode & 0xA000) != 0
+  
+  @property
+  def modeStr(self):
+    """Gets a string representing the file object's mode."""
+    return "----------"
+  
+  @property
+  def numLinks(self):
+    """Gets the number of hard linkes to this file object."""
+    return self._inode.num_links
+  
+  @property
+  def uid(self):
+    """Gets the uid of the file owner."""
+    return self._inode.uid
+  
+  @property
+  def gid(self):
+    """Gets the gid of the file owner."""
+    return self._inode.gid
+  
+  @property
+  def size(self):
+    """Gets the size of the file in bytes, or 0 if it is not a regular file."""
+    if self.isRegular:
+      return self._inode.size
+    return 0
+  
+  @property
+  def timeCreated(self):
+    """Gets the time and date the file was last created as a string."""
+    return strftime("%b %d %I:%M", localtime(self._inode.time_created))
+  
+  @property
+  def timeAccessed(self):
+    """Gets the time and date the file was last accessed as a string."""
+    return strftime("%b %d %I:%M", localtime(self._inode.time_accessed))
+  
+  @property
+  def timeModified(self):
+    """Gets the time and date the file was last modified as a string."""
+    return strftime("%b %d %I:%M", localtime(self._inode.time_modified))
+  
+  def __init__(self, name, inodeNum, disk):
+    """Constructs a new file object from the specified inode number on the
+    specified disk."""
+    self._name = name
+    self._inode = disk._readInode(inodeNum)
+    self._disk = disk
+  
+  def __str__(self):
+    return "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}".format(self.inodeNum,
+      self.modeStr, self.numLinks, self.uid, self.gid, self.size, self.timeCreated,
+      self.timeAccessed, self.timeModified, self.name)
+  
+  def listContents(self):
+    """Gets directory contents if this file object is a directory. Ignores
+    file types and treats name length as one byte."""
+    if not self.isDir:
+      raise InvalidFileTypeError()
+    if (self._inode.flags & 0x00001000) != 0:
+      raise UnsupportedOperationError()
+    
+    contents = []
+    for i in range(12):
+      blockId = self._inode.blocks[i]
+      if blockId == 0:
+        break
+      blockBytes = self._disk._readBlock(blockId)
+      
+      offset = 0
+      while offset < self._disk.blockSize:
+        fields = unpack_from("<IHBx255s", blockBytes, offset)
+        if fields[0] == 0:
+          break
+        name = fields[3][:fields[2]]
+        contents.append(Ext2File(name, fields[0], self._disk))
+        offset += fields[1]
+    
+    return contents
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ====== EXT2 DISK ================================================
 
 class Ext2Disk(object):
   """Models a disk image within a file formatted to the ext2 filesystem."""
@@ -75,6 +211,11 @@ class Ext2Disk(object):
     """Gets the total number of inodes."""
     return self._superblock.num_inodes
   
+  @property
+  def rootDir(self):
+    """Gets the file object representing the root directory."""
+    return self._rootDir
+  
   
   @property
   def actionProgress(self):
@@ -94,16 +235,12 @@ class Ext2Disk(object):
     try:
       self._superblock = self.__readSuperblock(1024)
       self._bgroupDescTable = self.__readBGroupDescriptorTable(self._superblock)
+      self._rootDir = Ext2File("/", 2, self)
     except:
       raise InvalidImageFormatError()
-    
-    
-    rootInode = self.__readInode(2)
-    
-    import inspect
-    for k,v in inspect.getmembers(rootInode):
-      print "{0} -->    {1}".format(k,v)
-    
+  
+  
+  
   
   
   
@@ -152,7 +289,7 @@ class Ext2Disk(object):
     sb = self.__Superblock()
     
     # read standard fields
-    fields = struct.unpack_from("<7Ii5I6H4I2H", sbBytes)
+    fields = unpack_from("<7Ii5I6H4I2H", sbBytes)
     sb.num_inodes = fields[0]
     sb.num_blocks = fields[1]
     sb.num_res_blocks = fields[2]
@@ -202,7 +339,7 @@ class Ext2Disk(object):
     sb.def_gid_res = fields[24]
     
     # read additional fields
-    fields = struct.unpack_from("<I2H3I16s16s64sI2B2x16s3I4IB3x2I", sbBytes, 84)
+    fields = unpack_from("<I2H3I16s16s64sI2B2x16s3I4IB3x2I", sbBytes, 84)
     sb.first_inode_index = fields[0]
     sb.inode_size = fields[1]
     sb.superblock_group_nr = fields[2]
@@ -258,7 +395,7 @@ class Ext2Disk(object):
     bgdt.entries = []
     
     for i in range(numGroups):
-      fields = struct.unpack_from("<3I3H", bgdtBytes, i*32)
+      fields = unpack_from("<3I3H", bgdtBytes, i*32)
       entry = self.__BGroupDescriptorEntry()
       entry.bid_block_bitmap = fields[0]
       entry.bid_inode_bitmap = fields[1]
@@ -272,7 +409,7 @@ class Ext2Disk(object):
   
   
   
-  def __readInode(self, inodeNum):
+  def _readInode(self, inodeNum):
     """Reads the specified inode. Ignores fragments, generation, and ACL data."""
     bgroupNum = (inodeNum - 1) / self._superblock.num_inodes_per_group
     bgroupIndex = (inodeNum - 1) % self._superblock.num_inodes_per_group
@@ -287,7 +424,7 @@ class Ext2Disk(object):
     
     with open(self._filename, "rb") as f:
       f.seek(bitmapStartPos + bitmapByteIndex)
-      bitmapByte = struct.unpack("B", f.read(1))[0]
+      bitmapByte = unpack("B", f.read(1))[0]
       f.seek(inodeStartPos)
       inodeBytes = f.read(self._superblock.inode_size)
     if bitmapByte & usedTest == 0:
@@ -296,14 +433,14 @@ class Ext2Disk(object):
       raise Exception("Invalid inode.")
     
     if self._superblock.rev_level == 0:
-      fields = struct.unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
+      fields = unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
     else:
-      fields = struct.unpack_from("<2H5IHh4xI4x15I8xI", inodeBytes)
+      fields = unpack_from("<2H5IHh4xI4x15I8xI", inodeBytes)
     
     if self._superblock.creator_os == "LINUX":
-      osFields = struct.unpack_from("<4x2H", inodeBytes, 116)
+      osFields = unpack_from("<4x2H", inodeBytes, 116)
     elif self._superblock.creator_os == "HURD":
-      osFields = struct.unpack_from("<2x3H", inodeBytes, 116)
+      osFields = unpack_from("<2x3H", inodeBytes, 116)
     
     inode = self.__Inode()
     inode.num = inodeNum
@@ -333,33 +470,16 @@ class Ext2Disk(object):
     return inode
   
   
+  def _readBlock(self, blockId):
+    """Reads the entire block specified by the given block id."""
+    startPos = blockId * self._superblock.block_size
+    with open(self._filename, "rb") as f:
+      f.seek(startPos)
+      bytes = f.read(self._superblock.block_size)
+    if len(bytes) < self._superblock.block_size:
+      raise Exception("Invalid block.")
+    return bytes
   
-  
-  
-  
-  
-#   def __readUsedInodesFromBGroup(self, bgroupNum):
-#     entry = self._bgroupDescTable.entries[bgroupNum]
-#     
-#     tableStartPos = entry.bid_inode_table * self._superblock.block_size
-#     tableSize = self._superblock.inode_size * self._superblock.num_inodes_per_group
-#     
-#     with open(self._filename, "rb") as f:
-#       f.seek(startPos)
-#       bgdtBytes = f.read(tableSize)
-#     if len(bgdtBytes) < tableSize:
-#       raise Exception("Invalid block group descriptor table.")
-#     
-#     tableBid = 
-#     
-#     
-#     inodes = []
-#     return inodes
-
-
-
-
-
 
 
 

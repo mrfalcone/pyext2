@@ -44,61 +44,86 @@ class ProgressIndicatorThread(threading.Thread):
 
 
 
-# MAIN SCRIPT METHODS --------------------------------------------
+# MAIN APPLICATION METHODS --------------------------------------------
 
-def printTuples(tuples):
+def printPairs(pairs):
+  """Prints the strings stored in a list of pairs, justified."""
   maxLeftLen = 0
-  for t in tuples:
-    if len(t[0]) > maxLeftLen:
-      maxLeftLen = len(t[0])
-  for t in tuples:
-    if t[1]:
-      print "{0}{1}".format(t[0].ljust(maxLeftLen+5, "."), t[1])
+  for p in pairs:
+    if len(p[0]) > maxLeftLen:
+      maxLeftLen = len(p[0])
+  for p in pairs:
+    if p[1]:
+      print "{0}{1}".format(p[0].ljust(maxLeftLen+5, "."), p[1])
     else:
-      print t[0]
-
+      print p[0]
 
 
 def getDiskInfo(disk):
-  tuples = []
-  tuples.append( ("Ext2 revision", "{0}".format(disk.revision)) )
-  tuples.append( ("Total space", "{0:.2f} MB ({1} bytes)".format(float(disk.totalSpace) / 1048576, disk.totalSpace)) )
-  tuples.append( ("Used space", "{0:.2f} MB ({1} bytes)".format(float(disk.usedSpace) / 1048576, disk.usedSpace)) )
-  tuples.append( ("Block size", "{0} bytes".format(disk.blockSize)) )
-  tuples.append( ("Num inodes", "{0}".format(disk.numInodes)) )
-  tuples.append( ("Num block groups", "{0}".format(disk.numBlockGroups)) )
-  return tuples
+  """Gets general information about the disk and generates a list of information pairs."""
+  pairs = []
+  pairs.append( ("Ext2 revision", "{0}".format(disk.revision)) )
+  pairs.append( ("Total space", "{0:.2f} MB ({1} bytes)".format(float(disk.totalSpace) / 1048576, disk.totalSpace)) )
+  pairs.append( ("Used space", "{0:.2f} MB ({1} bytes)".format(float(disk.usedSpace) / 1048576, disk.usedSpace)) )
+  pairs.append( ("Block size", "{0} bytes".format(disk.blockSize)) )
+  pairs.append( ("Num inodes", "{0}".format(disk.numInodes)) )
+  pairs.append( ("Num block groups", "{0}".format(disk.numBlockGroups)) )
+  return pairs
 
 
 
 def getBlockGroupInfo(disk):
+  """Gets information about all the disk's block groups and generates a list
+  of information pairs."""
   bgroupReport = disk.scanBlockGroups()
-  tuples = []
-  tuples.append( ("Num files", "{0}".format(bgroupReport.numFiles)) )
-  tuples.append( ("Num directories", "{0}".format(bgroupReport.numDirs)) )
-  return tuples
+  pairs = []
+  pairs.append( ("Num files", "{0}".format(bgroupReport.numFiles)) )
+  pairs.append( ("Num directories", "{0}".format(bgroupReport.numDirs)) )
+  return pairs
+
+
+def printDirectory(dir, showAll = False, verbose = False):
+  """Prints the specified directory according to the given parameters."""
+  print "{0}:".format(dir.name)
+  for f in dir.listContents():
+    if not showAll and f.name[0] == ".":
+      continue
+    
+    inode = "{0}".format(f.inodeNum).rjust(10)
+    numLinks = "{0}".format(f.numLinks).rjust(3)
+    uid = "{0}".format(f.uid).rjust(5)
+    gid = "{0}".format(f.gid).rjust(5)
+    size = "{0}".format(f.size).rjust(10)
+    modified = f.timeModified.ljust(14)
+    
+    if verbose:
+      print "{0} {1} {2} {3} {4} {5} {6} {7}".format(inode, f.modeStr, numLinks,
+        uid, gid, size, modified, f.name)
+    else:
+      print f.name
 
 
 
+def main():
+  """Main entry point."""
+  if len(sys.argv) < 2:
+    print("Usage: {0} disk_image_file".format(sys.argv[0]))
+    print
+    quit()
+  
+  diskFilename = sys.argv[1]
+  
+  
+  disk = Ext2Disk(diskFilename)
+  #info = getDiskInfo(disk)
+  #info = getBlockGroupInfo(disk)
+  #printPairs(info)
+  
+  root = disk.rootDir
+  printDirectory(root)
 
 
-
-
-if len(sys.argv) < 2:
-  print("Usage: {0} disk_image_file".format(sys.argv[0]))
-  print
-  quit()
-
-
-diskFilename = sys.argv[1]
-
-
-disk = Ext2Disk(diskFilename)
-#info = getDiskInfo(disk)
-
-info = getBlockGroupInfo(disk)
-#printTuples(info)
-
+main()
 quit()
 
 
