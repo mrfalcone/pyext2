@@ -2,8 +2,7 @@ __author__ = "Michael R. Falcone"
 __version__ = "0.1"
 
 """
-
-
+Module for reading and checking an ext2 disk image.
 """
 
 import struct
@@ -28,6 +27,7 @@ class Ext2Disk(object):
   """Models a disk image within a file formatted to the ext2 filesystem."""
   _actionProgress = 0
   
+  # INTERNAL FILESYSTEM STRUCTURES --------------------------
   class __Superblock:
     pass
   class __BGroupDescriptorTable:

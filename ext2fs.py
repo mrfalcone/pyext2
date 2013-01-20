@@ -1,8 +1,15 @@
 #!/usr/bin/env python
 
+__author__ = "Michael R. Falcone"
+__version__ = "0.1"
+
+"""
+Driver application for interfacing with an ext2 disk image.
+"""
+
 import threading
 import sys
-from disk import *
+from diskmod import *
 
 
 # PROGRESS INDICATOR THREAD -------------------------------------
