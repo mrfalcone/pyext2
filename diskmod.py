@@ -68,7 +68,7 @@ class Ext2File(object):
   @property
   def modeStr(self):
     """Gets a string representing the file object's mode."""
-    return "----------"
+    return "".join(self._mode)
   
   @property
   def numLinks(self):
@@ -113,6 +113,28 @@ class Ext2File(object):
     self._name = name
     self._inode = disk._readInode(inodeNum)
     self._disk = disk
+    self._mode = list("----------")
+    if self.isDir:
+      self._mode[0] = "d"
+    if (self._inode.mode & 0x0100) != 0:
+      self._mode[1] = "r"
+    if (self._inode.mode & 0x0080) != 0:
+      self._mode[2] = "w"
+    if (self._inode.mode & 0x0040) != 0:
+      self._mode[3] = "x"
+    if (self._inode.mode & 0x0020) != 0:
+      self._mode[4] = "r"
+    if (self._inode.mode & 0x0010) != 0:
+      self._mode[5] = "w"
+    if (self._inode.mode & 0x0008) != 0:
+      self._mode[6] = "x"
+    if (self._inode.mode & 0x0004) != 0:
+      self._mode[7] = "r"
+    if (self._inode.mode & 0x0002) != 0:
+      self._mode[8] = "w"
+    if (self._inode.mode & 0x0001) != 0:
+      self._mode[9] = "x"
+      
   
   def __str__(self):
     return "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}".format(self.inodeNum,
@@ -153,17 +175,11 @@ class Ext2File(object):
 
 
 
-
-
-
-
 # ====== EXT2 DISK ================================================
 
 class Ext2Disk(object):
   """Models a disk image within a file formatted to the ext2 filesystem."""
-  _actionProgress = 0
   
-  # INTERNAL FILESYSTEM STRUCTURES --------------------------
   class __Superblock:
     pass
   class __BGroupDescriptorTable:
@@ -174,7 +190,7 @@ class Ext2Disk(object):
     pass
   
   
-  # PUBLIC PROPERTIES / METHODS ------------------------------------
+  # PROPERTIES -------------------------------------------------
   
   @property
   def revision(self):
@@ -217,16 +233,9 @@ class Ext2Disk(object):
     return self._rootDir
   
   
-  @property
-  def actionProgress(self):
-    """Gets the current disk action progress as a percentage (0-100).
-    Action is complete when progress reaches 100."""
-    return self._actionProgress
   
-  def resetActionProgress(self):
-    """Sets the action progress to 0 until the next progress increase."""
-    self._actionProgress = 0
   
+  # PUBLIC METHODS ------------------------------------
   
   def __init__(self, filename):
     """Constructs a new ext2 disk from the specified image file. Raises an
@@ -241,9 +250,6 @@ class Ext2Disk(object):
   
   
   
-  
-  
-  
   def scanBlockGroups(self):
     """Scans all block groups and returns information about them."""
     report = BlockGroupReport()
@@ -252,24 +258,17 @@ class Ext2Disk(object):
     report.numDirs = 0
     
     for i,entry in enumerate(self._bgroupDescTable.entries):
-      #inodes = self.__readUsedInodesFromBGroup(i)
       pass
-      
-    
     
     return report
-  
   
   
   
   def checkIntegrity(self):
     """Evaluates the integrity of the filesystem and generates a report."""
     report = IntegrityReport()
-    self.resetActionProgress()
     
-    for i in range(1000000):
-      self._actionProgress = int(float(i) / 1000000 * 100)
-    self._actionProgress = 100
+    report.hasMagicNumber = True
     
     return report
   

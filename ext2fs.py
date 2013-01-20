@@ -4,23 +4,26 @@ __author__ = "Michael R. Falcone"
 __version__ = "0.1"
 
 """
-Driver application for interfacing with an ext2 disk image.
+Driver application for interfacing with an ext2 disk image that can generate
+information about the disk and enter an interactive shell.
 """
 
-import threading
 import sys
+from threading import Thread
+from Queue import Queue
 from diskmod import *
 
 
-# PROGRESS INDICATOR THREAD -------------------------------------
-class ProgressIndicatorThread(threading.Thread):
-  """Shows a progress indicator for the current disk action."""
-  _length = 20
-  _character = "-"
+
+# WAIT INDICATOR THREAD -------------------------------------
+class WaitIndicatorThread(Thread):
+  """Shows a wait indicator for the current action."""
+  done = False
   
-  def __init__(self, disk):
-    threading.Thread.__init__(self)
-    self._disk = disk
+  def __init__(self, msg):
+    Thread.__init__(self)
+    self._msg = msg
+    self._pos = 0
   
   def __printIndicator(self, progressPercent):
     numMarkers = progressPercent / (100 / self._length)
@@ -33,20 +36,31 @@ class ProgressIndicatorThread(threading.Thread):
     sys.stdout.flush()
   
   def run(self):
-    self._disk.resetActionProgress()
-    currentProgress = 0
-    while currentProgress < 100:
-      self.__printIndicator(currentProgress)
-      currentProgress = self._disk.actionProgress
-    self.__printIndicator(100)
+    while not self.done:
+      sys.stdout.write(self._msg)
+      sys.stdout.write(" ")
+      if self._pos == 0:
+        sys.stdout.write("-")
+      elif self._pos == 1:
+        sys.stdout.write("\\")
+      elif self._pos == 2:
+        sys.stdout.write("|")
+      else:
+        sys.stdout.write("/")
+      sys.stdout.flush()
+      sys.stdout.write("\r")
+      self._pos = (self._pos + 1) % 3
+    sys.stdout.write(self._msg)
+    sys.stdout.write(" Done.")
+    sys.stdout.flush()
     print
-# ----------------------------------------------------------
 
 
 
-# MAIN APPLICATION METHODS --------------------------------------------
 
-def printPairs(pairs):
+# ========= DISK INFORMATION ==============================================
+
+def printInfoPairs(pairs):
   """Prints the strings stored in a list of pairs, justified."""
   maxLeftLen = 0
   for p in pairs:
@@ -56,12 +70,16 @@ def printPairs(pairs):
     if p[1]:
       print "{0}{1}".format(p[0].ljust(maxLeftLen+5, "."), p[1])
     else:
+      print
       print p[0]
+  print
 
 
-def getDiskInfo(disk):
+
+def getGeneralInfo(disk):
   """Gets general information about the disk and generates a list of information pairs."""
   pairs = []
+  pairs.append( ("GENERAL INFORMATION", None) )
   pairs.append( ("Ext2 revision", "{0}".format(disk.revision)) )
   pairs.append( ("Total space", "{0:.2f} MB ({1} bytes)".format(float(disk.totalSpace) / 1048576, disk.totalSpace)) )
   pairs.append( ("Used space", "{0:.2f} MB ({1} bytes)".format(float(disk.usedSpace) / 1048576, disk.usedSpace)) )
@@ -72,83 +90,180 @@ def getDiskInfo(disk):
 
 
 
-def getBlockGroupInfo(disk):
-  """Gets information about all the disk's block groups and generates a list
+def generateBlockGroupInfo(disk):
+  """Gathers information about all the disk's block groups and generates a list
   of information pairs."""
-  bgroupReport = disk.scanBlockGroups()
+  wait = WaitIndicatorThread("Scanning block groups...")
+  wait.start()
+  report = disk.scanBlockGroups()
+  wait.done = True
+  wait.join()
   pairs = []
-  pairs.append( ("Num files", "{0}".format(bgroupReport.numFiles)) )
-  pairs.append( ("Num directories", "{0}".format(bgroupReport.numDirs)) )
+  pairs.append( ("BLOCK GROUP INFORMATION", None) )
+  pairs.append( ("Num files", "{0}".format(report.numFiles)) )
+  pairs.append( ("Num directories", "{0}".format(report.numDirs)) )
   return pairs
 
 
-def printDirectory(dir, showAll = False, verbose = False):
+
+def generateIntegrityReport(disk):
+  """Runs an integrity report on the disk and returns the results as a list of
+  information pairs."""
+  wait = WaitIndicatorThread("Checking disk integrity...")
+  wait.start()
+  report = disk.checkIntegrity()
+  wait.done = True
+  wait.join()
+  
+  pairs = []
+  pairs.append( ("INTEGRITY REPORT", None) )
+  pairs.append( ("Contains magic number", "{0}".format(report.hasMagicNumber)) )
+  return pairs
+
+
+
+
+
+
+# ========= SHELL COMMANDS ==============================================
+
+def printDirectory(directory, recursive = False, showAll = False, verbose = False):
   """Prints the specified directory according to the given parameters."""
-  print "{0}:".format(dir.name)
-  for f in dir.listContents():
-    if not showAll and f.name[0] == ".":
-      continue
-    
-    inode = "{0}".format(f.inodeNum).rjust(10)
-    numLinks = "{0}".format(f.numLinks).rjust(3)
-    uid = "{0}".format(f.uid).rjust(5)
-    gid = "{0}".format(f.gid).rjust(5)
-    size = "{0}".format(f.size).rjust(10)
-    modified = f.timeModified.ljust(14)
-    
-    if verbose:
-      print "{0} {1} {2} {3} {4} {5} {6} {7}".format(inode, f.modeStr, numLinks,
-        uid, gid, size, modified, f.name)
-    else:
-      print f.name
+  q = Queue()
+  q.put(directory)
+  while not q.empty():
+    dir = q.get()
+    print "{0}:".format(dir.name)
+    for f in dir.listContents():
+      if not showAll and f.name[0] == ".":
+        continue
+      
+      inode = "{0}".format(f.inodeNum).rjust(10)
+      numLinks = "{0}".format(f.numLinks).rjust(3)
+      uid = "{0}".format(f.uid).rjust(5)
+      gid = "{0}".format(f.gid).rjust(5)
+      size = "{0}".format(f.size).rjust(10)
+      modified = f.timeModified.ljust(14)
+      name = f.name
+      if f.isDir and f.name != "." and f.name != "..":
+        name = "{0}/".format(f.name)
+        if recursive:
+          q.put(f)
+      
+      if verbose:
+        print "{0} {1} {2} {3} {4} {5} {6} {7}".format(inode, f.modeStr, numLinks,
+          uid, gid, size, modified, name)
+      else:
+        print name
+    print
+
+
+
+
+
+def shell(disk):
+  """Enters a command-line shell with commands for operating on the specified disk."""
+  print "Entered shell mode. Type 'help' for shell commands."
+  while True:
+    cmd = raw_input(">> ").rstrip()
+    if cmd == "exit":
+      break
+
+
+
+
+
+
+# ========= MAIN APPLICATION ==============================================
+
+def printHelp():
+  sp = 26
+  print "Usage: {0} options disk_image_file".format(sys.argv[0])
+  print
+  print "Options:"
+  print "{0}{1}".format("-s".ljust(sp), "Enters shell mode.")
+  print "{0}{1}".format("-h".ljust(sp), "Prints this message and exits.")
+  print "{0}{1}".format("-f filepath hostdir".ljust(sp), "Fetches the specified file from the filesystem")
+  print "{0}{1}".format("".ljust(sp), "into the specified host directory.")
+  print
+  print "{0}{1}".format("-i".ljust(sp), "Prints general information about the filesystem.")
+  print "{0}{1}".format("-b".ljust(sp), "Scans the filesystem's block groups and prints")
+  print "{0}{1}".format("".ljust(sp), "information about them.")
+  print
+  print "{0}{1}".format("-c".ljust(sp), "Checks the filesystem's integrity and prints an")
+  print "{0}{1}".format("".ljust(sp), "entire integrity report, including general and")
+  print "{0}{1}".format("".ljust(sp), "block group information.")
+  print
+
+
+def run(args, disk):
+  """Runs the program on the specified disk with the given command line arguments."""
+  showHelp = False
+  enterShell = False
+  showGeneralInfo = False
+  showBlockGroupInfo = False
+  showIntegrityCheck = False
+  
+  for a in args:
+    if a == "-h":
+      showHelp = True
+    if a == "-s":
+      enterShell = True
+    if a == "-i":
+      showGeneralInfo = True
+    if a == "-b":
+      showBlockGroupInfo = True
+    if a == "-c":
+      showIntegrityCheck = True
+      showGeneralInfo = True
+      showBlockGroupInfo = True
+  
+  if showHelp:
+    printHelp()
+    quit()
+  
+  if disk is None:
+    print "Error! No disk image specified."
+  elif not (showGeneralInfo or enterShell or showBlockGroupInfo or showIntegrityCheck):
+    printHelp()
+  else:
+    info = []
+    if showGeneralInfo:
+      info.extend(getGeneralInfo(disk))
+    if showBlockGroupInfo:
+      info.extend(generateBlockGroupInfo(disk))
+    if showIntegrityCheck:
+      info.extend(generateIntegrityReport(disk))
+    if len(info) > 0:
+      printInfoPairs(info)
+    if enterShell:
+      shell(disk)
 
 
 
 def main():
-  """Main entry point."""
-  if len(sys.argv) < 2:
-    print("Usage: {0} disk_image_file".format(sys.argv[0]))
-    print
+  """Main entry point of the application."""
+  args = list(sys.argv)
+  if len(args) < 2:
+    printHelp()
     quit()
-  
-  diskFilename = sys.argv[1]
-  
-  
-  disk = Ext2Disk(diskFilename)
-  #info = getDiskInfo(disk)
-  #info = getBlockGroupInfo(disk)
-  #printPairs(info)
-  
-  root = disk.rootDir
-  printDirectory(root)
+  else:
+    del args[0]
+    if args[-1][0] == "-":
+      disk = None
+    else:
+      try:
+        disk = Ext2Disk(args[-1])
+      except InvalidImageFormatError as e:
+        print "Error! The specified disk image is not formatted properly."
+        print
+        quit()
+      except Exception as e:
+        print "Error! The specified disk image could not be loaded."
+        quit()
+      del args[-1]
+    
+    run(args, disk)
 
 
 main()
-quit()
-
-
-
-try:
-  disk = Ext2Disk(diskFilename)
-except InvalidImageFormatError as e:
-  print "Error! The disk image is not formatted properly."
-  print
-  quit()
-except Exception as e:
-  print "Error! The specified disk image could not be loaded."
-  quit()
-  
-print "Loaded ext2 image from {0}.".format(diskFilename)
-print
-
-quit()
-print "Checking filesystem integrity..."
-indicator = ProgressIndicatorThread(disk)
-indicator.start()
-integrityReport = disk.generateIntegrityReport()
-indicator.join()
-print
-print "INTEGRITY REPORT"
-print "================"
-print integrityReport
-print
