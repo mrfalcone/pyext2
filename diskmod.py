@@ -5,6 +5,7 @@ __version__ = "0.1"
 Module for reading and checking an ext2 disk image.
 """
 
+import re
 from struct import unpack, unpack_from
 from math import ceil
 from time import localtime, strftime
@@ -22,6 +23,12 @@ class InvalidFileTypeError(Exception):
 class UnsupportedOperationError(Exception):
   """Thrown when the filesystem does not support the requested operation."""
   pass
+
+class FileNotFoundError(Exception):
+  """Thrown when the filesystem cannot find a file object."""
+  pass
+
+
 
 class BlockGroupReport(object):
   """Contains information about the filesystem's block groups."""
@@ -44,6 +51,12 @@ class Ext2File(object):
   def name(self):
     """Gets the name of this file on the filesystem."""
     return self._name
+  
+  @property
+  def absolutePath(self):
+    """Gets the absolute path to this file or directory, including the name if
+    it is a file or symlink."""
+    return self._path
   
   @property
   def inodeNum(self):
@@ -107,12 +120,41 @@ class Ext2File(object):
     """Gets the time and date the file was last modified as a string."""
     return strftime("%b %d %I:%M", localtime(self._inode.time_modified))
   
-  def __init__(self, name, inodeNum, disk):
+  @property
+  def parentDir(self):
+    """Gets this file object's parent directory."""
+    return self._parentDir
+  
+  def __init__(self, name, parentDir, inodeNum, disk):
     """Constructs a new file object from the specified inode number on the
     specified disk."""
     self._name = name
     self._inode = disk._readInode(inodeNum)
     self._disk = disk
+    
+    if parentDir is None:
+      self._parentDir = self
+    elif self._name == "..":
+      self._parentDir = parentDir.parentDir
+    else:
+      self._parentDir = parentDir
+    if not self._parentDir.isDir:
+      raise Exception("Invalid parent directory.")
+    
+    absPath = []
+    if not (self._name == "." or self._name == ".."):
+      absPath.append(self._name)
+    upParent = self._parentDir
+    while not upParent.name == "":
+      if upParent.name == ".":
+        upParent = upParent.parentDir
+      elif upParent.name == "..":
+        upParent = upParent.parentDir.parentDir
+      else:
+        absPath.insert(0, upParent.name)
+        upParent = upParent.parentDir
+    self._path = "/{0}".format("/".join(absPath))
+    
     self._mode = list("----------")
     if self.isDir:
       self._mode[0] = "d"
@@ -162,7 +204,7 @@ class Ext2File(object):
         if fields[0] == 0:
           break
         name = fields[3][:fields[2]]
-        contents.append(Ext2File(name, fields[0], self._disk))
+        contents.append(Ext2File(name, self, fields[0], self._disk))
         offset += fields[1]
     
     return contents
@@ -237,17 +279,43 @@ class Ext2Disk(object):
   
   # PUBLIC METHODS ------------------------------------
   
-  def __init__(self, filename):
+  def __init__(self, imageFile):
     """Constructs a new ext2 disk from the specified image file. Raises an
-    exception if the disk image is not formatted to ext2."""
-    self._filename = filename
+    InvalidImageFormatError if the root directory cannot be loaded."""
+    self._imageFile = imageFile
     try:
       self._superblock = self.__readSuperblock(1024)
       self._bgroupDescTable = self.__readBGroupDescriptorTable(self._superblock)
-      self._rootDir = Ext2File("/", 2, self)
+      self._rootDir = Ext2File("", None, 2, self)
     except:
       raise InvalidImageFormatError()
   
+  
+  def getFile(self, absolutePath):
+    """Looks up and returns the file specified by the absolute path. Raises a
+    FileNotFoundError if the file object cannot be found."""
+    pathParts = re.compile(r"/+").split(absolutePath)
+    if len(pathParts) == 0:
+      raise FileNotFoundError()
+    if not pathParts[0] == "":
+      raise FileNotFoundError()
+    
+    if len(pathParts) > 1 and pathParts[-1] == "":
+      del pathParts[-1]
+    localName = pathParts[-1]
+    fileObject = self._rootDir
+    del pathParts[0]
+    for localPath in pathParts:
+      if not fileObject.isDir:
+        break
+      for f in fileObject.listContents():
+        if f.name == localPath:
+          fileObject = f
+          break
+    
+    if not fileObject.name == localName:
+      raise FileNotFoundError()
+    return fileObject
   
   
   def scanBlockGroups(self):
@@ -279,7 +347,7 @@ class Ext2Disk(object):
   
   def __readSuperblock(self, startPos):
     """Reads the superblock at the specified position in bytes."""
-    with open(self._filename, "rb") as f:
+    with open(self._imageFile, "rb") as f:
       f.seek(startPos)
       sbBytes = f.read(1024)
     if len(sbBytes) < 1024:
@@ -384,7 +452,7 @@ class Ext2Disk(object):
     numGroups = int(ceil(superblock.num_blocks / superblock.num_blocks_per_group))
     tableSize = numGroups * 32
     
-    with open(self._filename, "rb") as f:
+    with open(self._imageFile, "rb") as f:
       f.seek(startPos)
       bgdtBytes = f.read(tableSize)
     if len(bgdtBytes) < tableSize:
@@ -421,7 +489,7 @@ class Ext2Disk(object):
     tableStartPos = bgroupDescEntry.bid_inode_table * self._superblock.block_size
     inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inode_size)
     
-    with open(self._filename, "rb") as f:
+    with open(self._imageFile, "rb") as f:
       f.seek(bitmapStartPos + bitmapByteIndex)
       bitmapByte = unpack("B", f.read(1))[0]
       f.seek(inodeStartPos)
@@ -472,7 +540,7 @@ class Ext2Disk(object):
   def _readBlock(self, blockId):
     """Reads the entire block specified by the given block id."""
     startPos = blockId * self._superblock.block_size
-    with open(self._filename, "rb") as f:
+    with open(self._imageFile, "rb") as f:
       f.seek(startPos)
       bytes = f.read(self._superblock.block_size)
     if len(bytes) < self._superblock.block_size:

@@ -127,13 +127,32 @@ def generateIntegrityReport(disk):
 
 # ========= SHELL COMMANDS ==============================================
 
+def printShellHelp():
+  """Prints a help screen for the shell, listing supported commands."""
+  sp = 26
+  rsp = 4
+  print "Supported commands:"
+  print "{0}{1}".format("pwd".ljust(sp), "Prints the current working directory.")
+  print "{0}{1}".format("ls [-R,-a,-v]".ljust(sp), "Prints the entries in the working directory.")
+  print "{0}{1}".format("".ljust(sp), "Optional flags:")
+  print "{0}{1}{2}".format("".ljust(sp), "-R".ljust(rsp), "Lists entries recursively.")
+  print "{0}{1}{2}".format("".ljust(sp), "-a".ljust(rsp), "Lists hidden entries.")
+  print "{0}{1}{2}".format("".ljust(sp), "-v".ljust(rsp), "Verbose listing.")
+  print
+  print "{0}{1}".format("cd directory".ljust(sp), "Changes to the specified directory.")
+  print "{0}{1}".format("help".ljust(sp), "Prints this message.")
+  print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
+  print
+
+
 def printDirectory(directory, recursive = False, showAll = False, verbose = False):
   """Prints the specified directory according to the given parameters."""
   q = Queue()
   q.put(directory)
   while not q.empty():
     dir = q.get()
-    print "{0}:".format(dir.name)
+    if recursive:
+      print "{0}:".format(dir.absolutePath)
     for f in dir.listContents():
       if not showAll and f.name[0] == ".":
         continue
@@ -163,11 +182,42 @@ def printDirectory(directory, recursive = False, showAll = False, verbose = Fals
 
 def shell(disk):
   """Enters a command-line shell with commands for operating on the specified disk."""
+  wd = disk.rootDir
   print "Entered shell mode. Type 'help' for shell commands."
   while True:
-    cmd = raw_input(">> ").rstrip()
-    if cmd == "exit":
+    input = raw_input(": '{0}' >> ".format(wd.absolutePath)).rstrip().split()
+    if len(input) == 0:
+      continue
+    cmd = input[0]
+    args = input[1:]
+    if cmd == "help":
+      printShellHelp()
+    elif cmd == "exit":
       break
+    elif cmd == "pwd":
+      print wd.absolutePath
+    elif cmd == "ls":
+      printDirectory(wd, "-R" in args, "-a" in args, "-v" in args)
+    elif cmd == "cd":
+      if len(args) == 0:
+        print "No path specified."
+      else:
+        if args[0].startswith("\"") or args[0].startswith("'"):
+          path = " ".join(args)[1:-1]
+        else:
+          path = args[0]
+        if not path.startswith("/"):
+          path = "{0}/{1}".format(wd.absolutePath, path)
+        try:
+          f = disk.getFile(path)
+          if f.isDir:
+            wd = f
+          else:
+            print "Not a directory."
+        except FileNotFoundError:
+          print "The specified directory does not exist."
+    else:
+      print "Command not recognized."
 
 
 
