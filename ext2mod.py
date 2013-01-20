@@ -48,6 +48,11 @@ class Ext2File(object):
   """Represents a file or directory on the ext2 filesystem."""
   
   @property
+  def fsType(self):
+    """Gets a string representing the filesystem type. Always EXT2"""
+    return "EXT2"
+  
+  @property
   def name(self):
     """Gets the name of this file on the filesystem."""
     return self._name
@@ -108,17 +113,17 @@ class Ext2File(object):
   @property
   def timeCreated(self):
     """Gets the time and date the file was last created as a string."""
-    return strftime("%b %d %I:%M", localtime(self._inode.time_created))
+    return strftime("%b %d %I:%M %Y", localtime(self._inode.time_created))
   
   @property
   def timeAccessed(self):
     """Gets the time and date the file was last accessed as a string."""
-    return strftime("%b %d %I:%M", localtime(self._inode.time_accessed))
+    return strftime("%b %d %I:%M %Y", localtime(self._inode.time_accessed))
   
   @property
   def timeModified(self):
     """Gets the time and date the file was last modified as a string."""
-    return strftime("%b %d %I:%M", localtime(self._inode.time_modified))
+    return strftime("%b %d %I:%M %Y", localtime(self._inode.time_modified))
   
   @property
   def parentDir(self):
@@ -200,10 +205,10 @@ class Ext2File(object):
       
       offset = 0
       while offset < self._disk.blockSize:
-        fields = unpack_from("<IHBx255s", blockBytes, offset)
+        fields = unpack_from("<IHB", blockBytes, offset)
         if fields[0] == 0:
           break
-        name = fields[3][:fields[2]]
+        name = unpack_from("<{0}s".format(fields[2]), blockBytes, offset + 8)[0]
         contents.append(Ext2File(name, self, fields[0], self._disk))
         offset += fields[1]
     
@@ -233,6 +238,11 @@ class Ext2Disk(object):
   
   
   # PROPERTIES -------------------------------------------------
+  
+  @property
+  def fsType(self):
+    """Gets a string representing the filesystem type. Always EXT2"""
+    return "EXT2"
   
   @property
   def revision(self):
