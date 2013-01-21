@@ -1,17 +1,16 @@
 #!/usr/bin/env python
-
-__author__ = "Michael R. Falcone"
-__version__ = "0.1"
-
 """
 Driver application for interfacing with a filesystem image that can generate
 information about the filesystem and enter an interactive shell.
 """
+__license__ = "BSD"
+__copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import sys
 from threading import Thread
 from Queue import Queue
 from ext2mod import *
+
 
 
 class FilesystemNotSupportedError(Exception):
@@ -283,14 +282,17 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   except:
     raise Exception("Cannot access specified destination directory.")
   
-  print "Fetching {0} to {1} ...".format(srcFilename, outFile.name)
+  print
+  print "Fetching {0}...".format(srcFilename)
+  readCount = 0
   with outFile:
     byteBuffer = srcFile.read()
     while len(byteBuffer) > 0:
       outFile.write(byteBuffer)
+      readCount += len(byteBuffer)
       byteBuffer = srcFile.read()
-  
-  
+  print "Read {0} bytes to {1}.".format(readCount, outFile.name)
+  print
 
 
 

@@ -1,10 +1,10 @@
-__author__ = "Michael R. Falcone"
-__version__ = "0.1"
-
+#!/usr/bin/env python
 """
 Module for reading and checking an ext2 disk image. Attempts to support
 revision levels 0-1.
 """
+__license__ = "BSD"
+__copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import re
 import inspect
@@ -12,6 +12,7 @@ from Queue import Queue
 from struct import unpack, unpack_from
 from math import ceil
 from time import localtime, strftime
+
 
 
 class InvalidImageFormatError(Exception):
@@ -251,7 +252,8 @@ class Ext2File(object):
   
   
   def __findBlockId(self, index):
-    """Looks up the block id corresponding to the block at the specified index."""
+    """Looks up the block id corresponding to the block at the specified index,
+    where the block index is the absolute block number within the file."""
     if index >= self.numBlocks:
       raise Exception("Block index out of range.")
     
@@ -260,24 +262,25 @@ class Ext2File(object):
       bytes = self._disk._readBlock(bid)
       return unpack_from("<{0}I".format(numIdsPerBlock), bytes)
     
-    maxDirect = 12
-    maxIndirect = maxDirect + numIdsPerBlock
-    maxDoublyIndirect = maxIndirect + numIdsPerBlock ** 2
-    maxTreblyIndirect = maxDoublyIndirect + numIdsPerBlock ** 3
+    numDirect = 12
+    numIndirect = numDirect + numIdsPerBlock
+    numDoublyIndirect = numIndirect + numIdsPerBlock ** 2
+    numTreblyIndirect = numDoublyIndirect + numIdsPerBlock ** 3
     
-    if index < maxDirect:
+    if index < numDirect:
       return self._inode.blocks[index]
     
-    elif index < maxIndirect:
+    elif index < numIndirect:
       direct = __bidListAtBid(self._inode.blocks[12])
-      return direct[index - maxDirect]
+      return direct[index - numDirect]
     
-    elif index < maxDoublyIndirect:
+    elif index < numDoublyIndirect:
       indirect = __bidListAtBid(self._inode.blocks[13])
-      index -= maxIndirect # get index from start of doubly indirect list
+      index -= numIndirect # get index from start of doubly indirect list
       direct = __bidListAtBid(indirect[index / numIdsPerBlock])
       return direct[index % numIdsPerBlock]
     
+    # TODO trebly indirect
     
     raise Exception("Block id not found.")
 
