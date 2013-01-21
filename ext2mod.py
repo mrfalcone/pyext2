@@ -2,10 +2,13 @@ __author__ = "Michael R. Falcone"
 __version__ = "0.1"
 
 """
-Module for reading and checking an ext2 disk image.
+Module for reading and checking an ext2 disk image. Attempts to support
+revision levels 0-1.
 """
 
 import re
+import inspect
+from Queue import Queue
 from struct import unpack, unpack_from
 from math import ceil
 from time import localtime, strftime
@@ -30,12 +33,8 @@ class FileNotFoundError(Exception):
 
 
 
-class BlockGroupReport(object):
-  """Contains information about the filesystem's block groups."""
-  pass
-
-class IntegrityReport(object):
-  """Contains the results of an integrity check on the filesystem."""
+class InformationReport(object):
+  """Structure used to return information about the filesystem."""
   pass
 
 
@@ -67,6 +66,11 @@ class Ext2File(object):
   def inodeNum(self):
     """Gets the inode number of this file on the filesystem."""
     return self._inode.num
+  
+  @property
+  def isValid(self):
+    """Returns True if the inode of this file is in use, or False if it is not."""
+    return self._inode.used
   
   @property
   def isDir(self):
@@ -246,7 +250,7 @@ class Ext2Disk(object):
   
   @property
   def revision(self):
-    """Gets the filesystem revision as a string formatted as MAJOR.MINOR."""
+    """Gets the filesystem revision string formatted as MAJOR.MINOR."""
     return "{0}.{1}".format(self._superblock.rev_level, self._superblock.rev_minor)
   
   @property
@@ -325,28 +329,128 @@ class Ext2Disk(object):
     
     if not fileObject.name == localName:
       raise FileNotFoundError()
+    
     return fileObject
   
   
+  
   def scanBlockGroups(self):
-    """Scans all block groups and returns information about them."""
-    report = BlockGroupReport()
+    """Scans all block groups and returns an information report about them."""
+    report = InformationReport()
     
-    report.numFiles = 0
-    report.numDirs = 0
+    # count files and directories
+    report.numRegFiles = 0
+    report.numSymlinks = 0
+    report.numDirs = 1 # initialize with root directory
+    q = Queue()
+    q.put(self.rootDir)
+    while not q.empty():
+      dir = q.get()
+      for f in dir.listContents():
+        if f.name == "." or f.name == "..":
+          continue
+        if f.isDir:
+          report.numDirs += 1
+          q.put(f)
+        elif f.isRegular:
+          report.numRegFiles += 1
+        elif f.isSymlink:
+          report.numSymlinks += 1
     
+    # report block group information
+    report.groupReports = []
     for i,entry in enumerate(self._bgroupDescTable.entries):
-      pass
+      groupReport = InformationReport()
+      groupReport.numFreeBlocks = entry.num_free_blocks
+      groupReport.numFreeInodes = entry.num_free_inodes
+      report.groupReports.append(groupReport)
     
     return report
   
   
   
+  
   def checkIntegrity(self):
-    """Evaluates the integrity of the filesystem and generates a report."""
-    report = IntegrityReport()
+    """Evaluates the integrity of the filesystem and returns an information report."""
+    report = InformationReport()
     
-    report.hasMagicNumber = True
+    # basic integrity checks
+    report.hasMagicNumber = (self._superblock.magic_number == 0xEF53)
+    report.numSuperblockCopies = len(self._superblock.copy_block_group_ids)
+    report.copyLocations = list(self._superblock.copy_block_group_ids)
+    report.messages = []
+    
+    
+    # check consistency across superblock/group table copies
+    sbMembers = dict(inspect.getmembers(self._superblock))
+    bgtMembersEntries = map(dict, map(inspect.getmembers, self._bgroupDescTable.entries))
+    for groupId in self._superblock.copy_block_group_ids:
+      if groupId == 0:
+        continue
+      
+      # evaluate superblock copy consistency
+      try:
+        startPos = 1024 + groupId * self._superblock.num_blocks_per_group * self._superblock.block_size
+        sbCopy = self.__readSuperblock(startPos)
+        sbCopyMembers = dict(inspect.getmembers(sbCopy))
+      except:
+        report.messages.append("Superblock at block group {0} could not be read.".format(groupId))
+        continue
+      for m in sbMembers:
+        if m.startswith("_"):
+          continue
+        if not m in sbCopyMembers:
+          report.messages.append("Superblock at block group {0} has missing field '{1}'.".format(groupId, m))
+        elif not sbCopyMembers[m] == sbMembers[m]:
+          report.messages.append("Superblock at block group {0} has inconsistent field '{1}' with value '{2}' (primary value is '{3}').".format(groupId, m, sbCopyMembers[m], sbMembers[m]))
+      
+      # evaluate block group descriptor table consistency
+      try:
+        bgtCopy = self.__readBGroupDescriptorTable(sbCopy)
+        bgtCopyMembersEntries = map(dict, map(inspect.getmembers, bgtCopy.entries))
+      except:
+        report.messages.append("Block group descriptor table at block group {0} could not be read.".format(groupId))
+        continue
+      if len(bgtCopyMembersEntries) != len(bgtMembersEntries):
+        report.messages.append("Block group descriptor table at block group {0} has {1} entries while primary has {2}.".format(groupId, len(bgtCopyMembersEntries), len(bgtMembersEntries)))
+        continue
+      for entryNum in range(len(bgtMembersEntries)):
+        bgtPrimaryEntryMembers = bgtMembersEntries[entryNum]
+        bgtCopyEntryMembers = bgtCopyMembersEntries[entryNum]
+        for m in bgtPrimaryEntryMembers:
+          if m.startswith("_"):
+            continue
+          if not m in bgtCopyEntryMembers:
+            report.messages.append("Block group descriptor table entry {0} at block group {1} has missing field '{2}'.".format(entryNum, groupId, m))
+          elif not bgtCopyEntryMembers[m] == bgtPrimaryEntryMembers[m]:
+            report.messages.append("Block group descriptor table entry {0} at block group {1} has inconsistent field '{2}' with value '{3}' (primary value is '{4}').".format(entryNum, groupId, m, bgtCopyEntryMembers[m], bgtPrimaryEntryMembers[m]))
+    
+    
+    # validate inode references
+    inodes = self.__getUsedInodes()
+    inodesReachable = dict(zip(inodes, [False] * len(inodes)))
+    
+    q = Queue()
+    q.put(self.rootDir)
+    while not q.empty():
+      dir = q.get()
+      for f in dir.listContents():
+        if f.name == "." or f.name == "..":
+          continue
+        if f.isDir:
+          q.put(f)
+        if not (f.isValid and f.inodeNum in inodesReachable):
+          report.messages.append("The filesystem contains an entry for {0} but its inode is not marked as used (inode number {1}).".format(f.absolutePath, f.inodeNum))
+        else:
+          inodesReachable[f.inodeNum] = True
+    
+    for inodeNum in inodesReachable:
+      if not inodesReachable[inodeNum]:
+        report.messages.append("Inode number {0} is marked as used but does not have a reachable directory entry.".format(inodeNum))
+    
+    
+    # validate data block references
+    # TODO
     
     return report
   
@@ -356,7 +460,9 @@ class Ext2Disk(object):
   # PRIVATE METHODS ------------------------------------
   
   def __readSuperblock(self, startPos):
-    """Reads the superblock at the specified position in bytes."""
+    """Reads the superblock at the specified position in bytes. Returns a structure
+    containing the superblock values. Structure members prefixed with an underscore are
+    unique to each copy of the superblock."""
     with open(self._imageFile, "rb") as f:
       f.seek(startPos)
       sbBytes = f.read(1024)
@@ -377,7 +483,7 @@ class Ext2Disk(object):
     if fields[7] > 0:
       sb.frag_size = 1024 << fields[7]
     else:
-      sb.frag_size = 1024 >> fields[7]
+      sb.frag_size = 1024 >> abs(fields[7])
     sb.num_blocks_per_group = fields[8]
     sb.num_frags_per_group = fields[9]
     sb.num_inodes_per_group = fields[10]
@@ -419,7 +525,7 @@ class Ext2Disk(object):
     fields = unpack_from("<I2H3I16s16s64sI2B2x16s3I4IB3x2I", sbBytes, 84)
     sb.first_inode_index = fields[0]
     sb.inode_size = fields[1]
-    sb.superblock_group_nr = fields[2]
+    sb._superblock_group_nr = fields[2]
     sb.compat_feature_bitmask = fields[3]
     sb.incompat_feature_bitmask = fields[4]
     sb.rocompat_feature_bitmask = fields[5]
@@ -453,14 +559,35 @@ class Ext2Disk(object):
     sb.def_mount_options = fields[21]
     sb.first_meta_bgroup_id = fields[22]
     
+    if sb.num_blocks_per_group > 0:
+      sb.num_block_groups = int(ceil(sb.num_blocks / sb.num_blocks_per_group))
+    else:
+      sb.num_block_groups = 0
+    
+    if sb.rev_level == 0:
+      sb.copy_block_group_ids = range(sb.num_block_groups)
+    else:
+      sb.copy_block_group_ids = []
+      sb.copy_block_group_ids.append(0)
+      sb.copy_block_group_ids.append(1)
+      last3 = 3
+      while last3 < sb.num_block_groups:
+        sb.copy_block_group_ids.append(last3)
+        last3 = last3 * 3
+      last7 = 7
+      while last7 < sb.num_block_groups:
+        sb.copy_block_group_ids.append(last7)
+        last7 = last7 * 7
+      sb.copy_block_group_ids.sort()
+    
     return sb
   
   
   def __readBGroupDescriptorTable(self, superblock):
     """Reads the block group descriptor table following the specified superblock."""
-    startPos = (superblock.first_block_id + 1) * superblock.block_size
-    numGroups = int(ceil(superblock.num_blocks / superblock.num_blocks_per_group))
-    tableSize = numGroups * 32
+    groupStart = superblock._superblock_group_nr * superblock.num_blocks_per_group * superblock.block_size
+    startPos = groupStart + (superblock.block_size * (superblock.first_block_id + 1))
+    tableSize = superblock.num_block_groups * 32
     
     with open(self._imageFile, "rb") as f:
       f.seek(startPos)
@@ -471,7 +598,7 @@ class Ext2Disk(object):
     bgdt = self.__BGroupDescriptorTable()
     bgdt.entries = []
     
-    for i in range(numGroups):
+    for i in range(superblock.num_block_groups):
       fields = unpack_from("<3I3H", bgdtBytes, i*32)
       entry = self.__BGroupDescriptorEntry()
       entry.bid_block_bitmap = fields[0]
@@ -483,6 +610,35 @@ class Ext2Disk(object):
       bgdt.entries.append(entry)
     
     return bgdt
+  
+  
+  def __getUsedInodes(self):
+    """Returns a list of all used inode numbers, excluding those reserved by the
+    filesystem."""
+    used = []
+    bitmaps = []
+    with open(self._imageFile, "rb") as f:
+      for bgroupDescEntry in self._bgroupDescTable.entries:
+        bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
+        bitmapSize = self._superblock.num_inodes_per_group / 8
+        f.seek(bitmapStartPos)
+        bitmapBytes = f.read(bitmapSize)
+        if len(bitmapBytes) < bitmapSize:
+          raise Exception("Invalid inode bitmap.")
+        bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
+    
+    for groupNum,bitmap in enumerate(bitmaps):
+      for byteIndex, byte in enumerate(bitmap):
+        if byte != 0:
+          for i in range(8):
+            if (1 << i) & byte != 0:
+              inum = (groupNum * self._superblock.num_inodes_per_group) + (byteIndex * 8) + i + 1
+              if inum >= self._superblock.first_inode_index:
+                used.append(inum)
+    
+    return used
+  
+  
   
   
   
@@ -504,8 +660,6 @@ class Ext2Disk(object):
       bitmapByte = unpack("B", f.read(1))[0]
       f.seek(inodeStartPos)
       inodeBytes = f.read(self._superblock.inode_size)
-    if bitmapByte & usedTest == 0:
-      raise Exception("Inode not in use.")
     if len(inodeBytes) < self._superblock.inode_size:
       raise Exception("Invalid inode.")
     
@@ -521,6 +675,7 @@ class Ext2Disk(object):
     
     inode = self.__Inode()
     inode.num = inodeNum
+    inode.used = (bitmapByte & usedTest != 0)
     inode.mode = fields[0]
     inode.uid = fields[1]
     inode.size = fields[2]

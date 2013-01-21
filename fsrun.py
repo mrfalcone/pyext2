@@ -61,7 +61,12 @@ def printInfoPairs(pairs):
       maxLeftLen = len(p[0])
   for p in pairs:
     if p[1]:
-      print "{0}{1}".format(p[0].ljust(maxLeftLen+5, "."), p[1])
+      if isinstance(p[1], list):
+        print "{0}:".format(p[0])
+        for message in p[1]:
+          print message
+      else:
+        print "{0}{1}".format(p[0].ljust(maxLeftLen+5, "."), p[1])
     else:
       print
       print p[0]
@@ -92,15 +97,26 @@ def generateDetailedInfo(disk):
   """Scans the disk to gather detailed information about space usage and returns
   a list of information pairs."""
   if disk.fsType == "EXT2":
-    wait = WaitIndicatorThread("Scanning block groups...")
+    
+    wait = WaitIndicatorThread("Scanning filesystem...")
     wait.start()
-    report = disk.scanBlockGroups()
-    wait.done = True
+    try:
+      report = disk.scanBlockGroups()
+    finally:
+      wait.done = True
     wait.join()
+    
     pairs = []
     pairs.append( ("DETAILED STORAGE INFORMATION", None) )
-    pairs.append( ("Num files", "{0}".format(report.numFiles)) )
+    pairs.append( ("Num regular files", "{0}".format(report.numRegFiles)) )
     pairs.append( ("Num directories", "{0}".format(report.numDirs)) )
+    pairs.append( ("Num symlinks", "{0}".format(report.numSymlinks)) )
+    pairs.append( ("Space used for files", "{0} bytes".format("-")) )
+    pairs.append( ("Space unused for files", "{0} bytes".format("-")) )
+    for i,groupReport in enumerate(report.groupReports):
+      pairs.append( ("Block group {0}".format(i),
+        "Free: {0} blocks, {1} inodes".format(groupReport.numFreeBlocks,
+        groupReport.numFreeInodes)) )
     
   else:
     raise FilesystemNotSupportedError()
@@ -115,13 +131,18 @@ def generateIntegrityReport(disk):
   if disk.fsType == "EXT2":
     wait = WaitIndicatorThread("Checking disk integrity...")
     wait.start()
-    report = disk.checkIntegrity()
-    wait.done = True
+    try:
+      report = disk.checkIntegrity()
+    finally:
+      wait.done = True
     wait.join()
     
     pairs = []
     pairs.append( ("INTEGRITY REPORT", None) )
     pairs.append( ("Contains magic number", "{0}".format(report.hasMagicNumber)) )
+    pairs.append( ("Num superblock copies", "{0}".format(report.numSuperblockCopies)) )
+    pairs.append( ("Superblock copy locations", "Block groups {0}".format(",".join(map(str,report.copyLocations)))) )
+    pairs.append( ("Diagnostic messages", report.messages) )
     
   else:
     raise FilesystemNotSupportedError()
@@ -258,25 +279,11 @@ def printHelp():
 
 def run(args, disk):
   """Runs the program on the specified disk with the given command line arguments."""
-  showHelp = False
-  enterShell = False
-  showGeneralInfo = False
-  showDetailedInfo = False
-  showIntegrityCheck = False
-  
-  for a in args:
-    if a == "-h":
-      showHelp = True
-    if a == "-s":
-      enterShell = True
-    if a == "-i":
-      showGeneralInfo = True
-    if a == "-d":
-      showDetailedInfo = True
-    if a == "-c":
-      showIntegrityCheck = True
-      showGeneralInfo = True
-      showDetailedInfo = True
+  showHelp = ("-h" in args)
+  enterShell = ("-s" in args)
+  showGeneralInfo = ("-i" in args or "-c" in args)
+  showDetailedInfo = ("-d" in args or "-c" in args)
+  showIntegrityCheck = ("-c" in args)
   
   if showHelp:
     printHelp()
