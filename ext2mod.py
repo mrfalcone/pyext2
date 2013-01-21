@@ -115,6 +115,11 @@ class Ext2File(object):
     return 0
   
   @property
+  def numBlocks(self):
+    """Gets the number of blocks used by the file on the filesystem."""
+    return self._numBlocks
+  
+  @property
   def timeCreated(self):
     """Gets the time and date the file was last created as a string."""
     return strftime("%b %d %I:%M %Y", localtime(self._inode.time_created))
@@ -140,6 +145,8 @@ class Ext2File(object):
     self._name = name
     self._inode = disk._readInode(inodeNum)
     self._disk = disk
+    self._numBlocks = int(ceil(float(self._inode.size) / self._disk.blockSize))
+    self.resetFilePointer()
     
     if parentDir is None:
       self._parentDir = self
@@ -198,11 +205,11 @@ class Ext2File(object):
     if not self.isDir:
       raise InvalidFileTypeError()
     if (self._inode.flags & 0x00001000) != 0:
-      raise UnsupportedOperationError()
+      raise UnsupportedOperationError() # indexed directory structure not supported
     
     contents = []
-    for i in range(12):
-      blockId = self._inode.blocks[i]
+    for i in range(self.numBlocks):
+      blockId = self.__findBlockId(i)
       if blockId == 0:
         break
       blockBytes = self._disk._readBlock(blockId)
@@ -217,8 +224,62 @@ class Ext2File(object):
         offset += fields[1]
     
     return contents
-
-
+  
+  
+  def resetFilePointer(self):
+    """Resets the file pointer used for reading bytes from the file."""
+    self._filePointer = 0
+  
+  
+  def read(self):
+    """If the file object is a regular file, reads the next chunk of bytes as
+    a byte array and updates the file pointer. Returns an empty array if
+    the file pointer is at the end of the file."""
+    if not self.isRegular:
+      raise InvalidFileTypeError()
+    if self._filePointer >= self.size:
+      return []
+    
+    chunkBlockId = self.__findBlockId(self._filePointer / self._disk.blockSize)
+    
+    chunk = self._disk._readBlock(chunkBlockId)[(self._filePointer % self._disk.blockSize):]
+    self._filePointer += len(chunk)
+    if self._filePointer > self.size:
+      chunk = chunk[:(self.size % self._disk.blockSize)]
+    
+    return chunk
+  
+  
+  def __findBlockId(self, index):
+    """Looks up the block id corresponding to the block at the specified index."""
+    if index >= self.numBlocks:
+      raise Exception("Block index out of range.")
+    
+    numIdsPerBlock = self._disk.blockSize / 4
+    def __bidListAtBid(bid):
+      bytes = self._disk._readBlock(bid)
+      return unpack_from("<{0}I".format(numIdsPerBlock), bytes)
+    
+    maxDirect = 12
+    maxIndirect = maxDirect + numIdsPerBlock
+    maxDoublyIndirect = maxIndirect + numIdsPerBlock ** 2
+    maxTreblyIndirect = maxDoublyIndirect + numIdsPerBlock ** 3
+    
+    if index < maxDirect:
+      return self._inode.blocks[index]
+    
+    elif index < maxIndirect:
+      direct = __bidListAtBid(self._inode.blocks[12])
+      return direct[index - maxDirect]
+    
+    elif index < maxDoublyIndirect:
+      indirect = __bidListAtBid(self._inode.blocks[13])
+      index -= maxIndirect # get index from start of doubly indirect list
+      direct = __bidListAtBid(indirect[index / numIdsPerBlock])
+      return direct[index % numIdsPerBlock]
+    
+    
+    raise Exception("Block id not found.")
 
 
 
@@ -489,7 +550,7 @@ class Ext2Disk(object):
     sb.num_inodes_per_group = fields[10]
     sb.time_last_mount = fields[11]
     sb.time_last_write = fields[12]
-    sb.num_mounts_since_ck = fields[13]
+    sb.num_mounts_since_check = fields[13]
     sb.num_mounts_max = fields[14]
     sb.magic_number = fields[15]
     if fields[16] == 1:
@@ -503,8 +564,8 @@ class Ext2Disk(object):
     else:
       sb.error_action = "PANIC"
     sb.rev_minor = fields[18]
-    sb.time_last_ck = fields[19]
-    sb.time_between_ck = fields[20]
+    sb.time_last_check = fields[19]
+    sb.time_between_check = fields[20]
     if fields[21] == 0:
       sb.creator_os = "LINUX"
     elif fields[21] == 1:
@@ -569,16 +630,17 @@ class Ext2Disk(object):
     else:
       sb.copy_block_group_ids = []
       sb.copy_block_group_ids.append(0)
-      sb.copy_block_group_ids.append(1)
-      last3 = 3
-      while last3 < sb.num_block_groups:
-        sb.copy_block_group_ids.append(last3)
-        last3 = last3 * 3
-      last7 = 7
-      while last7 < sb.num_block_groups:
-        sb.copy_block_group_ids.append(last7)
-        last7 = last7 * 7
-      sb.copy_block_group_ids.sort()
+      if sb.num_block_groups > 1:
+        sb.copy_block_group_ids.append(1)
+        last3 = 3
+        while last3 < sb.num_block_groups:
+          sb.copy_block_group_ids.append(last3)
+          last3 = last3 * 3
+        last7 = 7
+        while last7 < sb.num_block_groups:
+          sb.copy_block_group_ids.append(last7)
+          last7 = last7 * 7
+        sb.copy_block_group_ids.sort()
     
     return sb
   

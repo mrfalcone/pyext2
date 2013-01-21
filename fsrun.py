@@ -64,7 +64,7 @@ def printInfoPairs(pairs):
       if isinstance(p[1], list):
         print "{0}:".format(p[0])
         for message in p[1]:
-          print message
+          print "- {0}".format(message)
       else:
         print "{0}{1}".format(p[0].ljust(maxLeftLen+5, "."), p[1])
     else:
@@ -93,18 +93,20 @@ def getGeneralInfo(disk):
 
 
 
-def generateDetailedInfo(disk):
+def generateDetailedInfo(disk, showWaitIndicator = True):
   """Scans the disk to gather detailed information about space usage and returns
   a list of information pairs."""
   if disk.fsType == "EXT2":
-    
-    wait = WaitIndicatorThread("Scanning filesystem...")
-    wait.start()
-    try:
+    if showWaitIndicator:
+      wait = WaitIndicatorThread("Scanning filesystem...")
+      wait.start()
+      try:
+        report = disk.scanBlockGroups()
+      finally:
+        wait.done = True
+      wait.join()
+    else:
       report = disk.scanBlockGroups()
-    finally:
-      wait.done = True
-    wait.join()
     
     pairs = []
     pairs.append( ("DETAILED STORAGE INFORMATION", None) )
@@ -114,9 +116,10 @@ def generateDetailedInfo(disk):
     pairs.append( ("Space used for files", "{0} bytes".format("-")) )
     pairs.append( ("Space unused for files", "{0} bytes".format("-")) )
     for i,groupReport in enumerate(report.groupReports):
-      pairs.append( ("Block group {0}".format(i),
-        "Free: {0} blocks, {1} inodes".format(groupReport.numFreeBlocks,
-        groupReport.numFreeInodes)) )
+      groupInfo = []
+      groupInfo.append("Free inodes: {0}".format(groupReport.numFreeInodes))
+      groupInfo.append("Free blocks: {0}".format(groupReport.numFreeBlocks))
+      pairs.append( ("Block group {0}".format(i), groupInfo) )
     
   else:
     raise FilesystemNotSupportedError()
@@ -125,24 +128,30 @@ def generateDetailedInfo(disk):
 
 
 
-def generateIntegrityReport(disk):
+def generateIntegrityReport(disk, showWaitIndicator = True):
   """Runs an integrity report on the disk and returns the results as a list of
   information pairs."""
   if disk.fsType == "EXT2":
-    wait = WaitIndicatorThread("Checking disk integrity...")
-    wait.start()
-    try:
+    if showWaitIndicator:
+      wait = WaitIndicatorThread("Checking disk integrity...")
+      wait.start()
+      try:
+        report = disk.checkIntegrity()
+      finally:
+        wait.done = True
+      wait.join()
+    else:
       report = disk.checkIntegrity()
-    finally:
-      wait.done = True
-    wait.join()
     
     pairs = []
     pairs.append( ("INTEGRITY REPORT", None) )
     pairs.append( ("Contains magic number", "{0}".format(report.hasMagicNumber)) )
     pairs.append( ("Num superblock copies", "{0}".format(report.numSuperblockCopies)) )
     pairs.append( ("Superblock copy locations", "Block groups {0}".format(",".join(map(str,report.copyLocations)))) )
-    pairs.append( ("Diagnostic messages", report.messages) )
+    messages = list(report.messages)
+    if len(messages) == 0:
+      messages.append("Integrity check passed.")
+    pairs.append( ("Diagnostic messages", messages) )
     
   else:
     raise FilesystemNotSupportedError()
@@ -255,6 +264,38 @@ def shell(disk):
 
 
 
+# ========= FILE TRANSFER ==============================================
+
+def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
+  """Fetches the specified file from the disk image filesystem and places it in
+  the local destination directory."""
+  
+  try:
+    srcFile = disk.getFile(srcFilename)
+  except FileNotFoundError:
+    raise Exception("The source file cannot be found on the filesystem image.")
+  
+  if not srcFile.isRegular:
+    raise Exception("The source path does not point to a regular file.")
+  
+  try:
+    outFile = open("{0}/{1}".format(destDirectory, srcFile.name), "wb")
+  except:
+    raise Exception("Cannot access specified destination directory.")
+  
+  print "Fetching {0} to {1} ...".format(srcFilename, outFile.name)
+  with outFile:
+    byteBuffer = srcFile.read()
+    while len(byteBuffer) > 0:
+      outFile.write(byteBuffer)
+      byteBuffer = srcFile.read()
+  
+  
+
+
+
+
+
 # ========= MAIN APPLICATION ==============================================
 
 def printHelp():
@@ -275,6 +316,8 @@ def printHelp():
   print "{0}{1}".format("".ljust(sp), "integrity report, including general and detailed")
   print "{0}{1}".format("".ljust(sp), "information.")
   print
+  print "{0}{1}".format("-w".ljust(sp), "Suppress the wait indicator for long operations.")
+  print
 
 
 def run(args, disk):
@@ -284,6 +327,8 @@ def run(args, disk):
   showGeneralInfo = ("-i" in args or "-c" in args)
   showDetailedInfo = ("-d" in args or "-c" in args)
   showIntegrityCheck = ("-c" in args)
+  suppressIndicator = ("-w" in args)
+  fetch = ("-f" in args)
   
   if showHelp:
     printHelp()
@@ -291,18 +336,30 @@ def run(args, disk):
   
   if disk is None:
     print "Error! No disk image specified."
-  elif not (showGeneralInfo or enterShell or showDetailedInfo or showIntegrityCheck):
+  elif not (showGeneralInfo or enterShell or showDetailedInfo or showIntegrityCheck or fetch):
     printHelp()
   else:
     info = []
     if showGeneralInfo:
       info.extend(getGeneralInfo(disk))
     if showDetailedInfo:
-      info.extend(generateDetailedInfo(disk))
+      info.extend(generateDetailedInfo(disk, not suppressIndicator))
     if showIntegrityCheck:
-      info.extend(generateIntegrityReport(disk))
+      info.extend(generateIntegrityReport(disk, not suppressIndicator))
     if len(info) > 0:
       printInfoPairs(info)
+    if fetch:
+      srcNameIndex = args.index("-f") + 1
+      destNameIndex = srcNameIndex + 1
+      if len(args) <= srcNameIndex:
+        print "Error! No source file specified to fetch."
+      elif len(args) <= destNameIndex:
+        print "Error! No destination directory specified for fetched file."
+      else:
+        try:
+          fetchFile(disk, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
+        except Exception as e:
+          print "Error! {0}".format(e)
     if enterShell:
       shell(disk)
 
