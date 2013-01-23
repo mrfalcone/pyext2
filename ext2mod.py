@@ -140,6 +140,7 @@ class Ext2File(object):
     """Gets this file object's parent directory."""
     return self._parentDir
   
+  
   def __init__(self, name, parentDir, inodeNum, disk):
     """Constructs a new file object from the specified inode number on the
     specified disk."""
@@ -193,12 +194,20 @@ class Ext2File(object):
       self._mode[8] = "w"
     if (self._inode.mode & 0x0001) != 0:
       self._mode[9] = "x"
-      
+    
+    self._numIdsPerBlock = self._disk.blockSize / 4
+    self._numDirectBlocks = 12
+    self._numIndirectBlocks = self._numDirectBlocks + self._numIdsPerBlock
+    self._numDoublyIndirectBlocks = self._numIndirectBlocks + self._numIdsPerBlock ** 2
+    self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
+  
   
   def __str__(self):
+    """Gets a string representation of this file object."""
     return "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}".format(self.inodeNum,
       self.modeStr, self.numLinks, self.uid, self.gid, self.size, self.timeCreated,
       self.timeAccessed, self.timeModified, self.name)
+  
   
   def listContents(self):
     """Gets directory contents if this file object is a directory. Ignores
@@ -210,7 +219,7 @@ class Ext2File(object):
     
     contents = []
     for i in range(self.numBlocks):
-      blockId = self.__findBlockId(i)
+      blockId = self.__lookupBlockId(i)
       if blockId == 0:
         break
       blockBytes = self._disk._readBlock(blockId)
@@ -241,7 +250,7 @@ class Ext2File(object):
     if self._filePointer >= self.size:
       return []
     
-    chunkBlockId = self.__findBlockId(self._filePointer / self._disk.blockSize)
+    chunkBlockId = self.__lookupBlockId(self._filePointer / self._disk.blockSize)
     
     chunk = self._disk._readBlock(chunkBlockId)[(self._filePointer % self._disk.blockSize):]
     self._filePointer += len(chunk)
@@ -251,38 +260,38 @@ class Ext2File(object):
     return chunk
   
   
-  def __findBlockId(self, index):
+  def __lookupBlockId(self, index):
     """Looks up the block id corresponding to the block at the specified index,
     where the block index is the absolute block number within the file."""
     if index >= self.numBlocks:
       raise Exception("Block index out of range.")
     
-    numIdsPerBlock = self._disk.blockSize / 4
     def __bidListAtBid(bid):
       bytes = self._disk._readBlock(bid)
-      return unpack_from("<{0}I".format(numIdsPerBlock), bytes)
+      return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
     
-    numDirect = 12
-    numIndirect = numDirect + numIdsPerBlock
-    numDoublyIndirect = numIndirect + numIdsPerBlock ** 2
-    numTreblyIndirect = numDoublyIndirect + numIdsPerBlock ** 3
-    
-    if index < numDirect:
+    if index < self._numDirectBlocks:
       return self._inode.blocks[index]
     
-    elif index < numIndirect:
+    elif index < self._numIndirectBlocks:
       direct = __bidListAtBid(self._inode.blocks[12])
-      return direct[index - numDirect]
+      return direct[index - self._numDirectBlocks]
     
-    elif index < numDoublyIndirect:
+    elif index < self._numDoublyIndirectBlocks:
       indirect = __bidListAtBid(self._inode.blocks[13])
-      index -= numIndirect # get index from start of doubly indirect list
-      direct = __bidListAtBid(indirect[index / numIdsPerBlock])
-      return direct[index % numIdsPerBlock]
+      index -= self._numIndirectBlocks # get index from start of doubly indirect list
+      direct = __bidListAtBid(indirect[index / self._numIdsPerBlock])
+      return direct[index % self._numIdsPerBlock]
     
-    # TODO trebly indirect
+    elif index < self._numTreblyIndirectBlocks:
+      doublyIndirect = __bidListAtBid(self._inode.blocks[14])
+      index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
+      indirect = __bidListAtBid(doublyIndirect[index / self._numIdsPerBlock])
+      index = index % self._numIdsPerBlock # get index from start of indirect list
+      direct = __bidListAtBid(indirect[index / self._numIdsPerBlock])
+      return direct[index % self._numIdsPerBlock]
     
-    raise Exception("Block id not found.")
+    raise Exception("Block not found.")
 
 
 

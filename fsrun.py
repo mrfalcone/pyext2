@@ -7,6 +7,7 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import sys
+from time import clock
 from threading import Thread
 from Queue import Queue
 from ext2mod import *
@@ -19,8 +20,11 @@ class FilesystemNotSupportedError(Exception):
 
 
 class WaitIndicatorThread(Thread):
-  """Shows a wait indicator for the current action."""
+  """Shows a wait indicator for the current action. If maxProgress is set then a
+  percentage towards completion is shown instead."""
   done = False
+  progress = 0
+  maxProgress = 0
   
   def __init__(self, msg):
     Thread.__init__(self)
@@ -31,14 +35,17 @@ class WaitIndicatorThread(Thread):
     while not self.done:
       sys.stdout.write(self._msg)
       sys.stdout.write(" ")
-      if self._pos == 0:
-        sys.stdout.write("-")
-      elif self._pos == 1:
-        sys.stdout.write("\\")
-      elif self._pos == 2:
-        sys.stdout.write("|")
+      if self.maxProgress == 0:
+        if self._pos == 0:
+          sys.stdout.write("-")
+        elif self._pos == 1:
+          sys.stdout.write("\\")
+        elif self._pos == 2:
+          sys.stdout.write("|")
+        else:
+          sys.stdout.write("/")
       else:
-        sys.stdout.write("/")
+        sys.stdout.write("{0:.0f}%".format(float(self.progress) / self.maxProgress * 100))
       sys.stdout.flush()
       sys.stdout.write("\r")
       self._pos = (self._pos + 1) % 3
@@ -268,6 +275,8 @@ def shell(disk):
 def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   """Fetches the specified file from the disk image filesystem and places it in
   the local destination directory."""
+  if not disk.fsType == "EXT2":
+    raise FilesystemNotSupportedError()
   
   try:
     srcFile = disk.getFile(srcFilename)
@@ -282,16 +291,36 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   except:
     raise Exception("Cannot access specified destination directory.")
   
-  print
-  print "Fetching {0}...".format(srcFilename)
-  readCount = 0
-  with outFile:
-    byteBuffer = srcFile.read()
-    while len(byteBuffer) > 0:
-      outFile.write(byteBuffer)
-      readCount += len(byteBuffer)
+  def __read(wait = None):
+    readCount = 0
+    with outFile:
       byteBuffer = srcFile.read()
-  print "Read {0} bytes to {1}.".format(readCount, outFile.name)
+      while len(byteBuffer) > 0:
+        outFile.write(byteBuffer)
+        readCount += len(byteBuffer)
+        if wait:
+          wait.progress += len(byteBuffer)
+        byteBuffer = srcFile.read()
+    return readCount
+  
+  if showWaitIndicator:
+    wait = WaitIndicatorThread("Fetching {0}...".format(srcFilename))
+    wait.maxProgress = srcFile.size
+    wait.start()
+    try:
+      transferStart = clock()
+      readCount = __read(wait)
+      transferTime = clock() - transferStart
+    finally:
+      wait.done = True
+    wait.join()
+  else:
+    transferStart = clock()
+    readCount = __read()
+    transferTime = clock() - transferStart
+  
+  mbps = float(readCount) / (1024*1024) / transferTime
+  print "Read {0} bytes at {1:.2f} MB/sec.".format(readCount, mbps)
   print
 
 
@@ -312,13 +341,14 @@ def printHelp():
   print
   print "{0}{1}".format("-i".ljust(sp), "Prints general information about the filesystem.")
   print "{0}{1}".format("-d".ljust(sp), "Scans the filesystem and prints detailed space")
-  print "{0}{1}".format("".ljust(sp), "space usage information.")
+  print "{0}{1}".format("".ljust(sp), "usage information.")
   print
-  print "{0}{1}".format("-c".ljust(sp), "Checks the filesystem's integrity and prints an")
-  print "{0}{1}".format("".ljust(sp), "integrity report, including general and detailed")
-  print "{0}{1}".format("".ljust(sp), "information.")
+  print "{0}{1}".format("-c".ljust(sp), "Checks the filesystem's integrity and prints a")
+  print "{0}{1}".format("".ljust(sp), "detailed integrity report.")
   print
-  print "{0}{1}".format("-w".ljust(sp), "Suppress the wait indicator for long operations.")
+  print "{0}{1}".format("-w".ljust(sp), "Suppress the wait indicator that is typically")
+  print "{0}{1}".format("".ljust(sp), "shown for long operations. This is useful when")
+  print "{0}{1}".format("".ljust(sp), "redirecting the output of this program.")
   print
 
 

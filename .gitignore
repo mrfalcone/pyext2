@@ -2,3 +2,9 @@
 *.pyc
 
 .DS_Store
+
+*.img
+
+*.ext2
+
+img/*
