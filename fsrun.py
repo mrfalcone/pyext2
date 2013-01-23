@@ -331,7 +331,7 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
 
 def printHelp():
   sp = 26
-  print "Usage: {0} options disk_image_file".format(sys.argv[0])
+  print "Usage: {0} disk_image_file options".format(sys.argv[0])
   print
   print "Options:"
   print "{0}{1}".format("-s".ljust(sp), "Enters shell mode.")
@@ -400,16 +400,16 @@ def run(args, disk):
 def main():
   """Main entry point of the application."""
   args = list(sys.argv)
-  if len(args) < 2:
+  if len(args) < 3:
     printHelp()
     quit()
   else:
     del args[0]
-    if args[-1][0] == "-":
+    if args[0][0] == "-":
       disk = None
     else:
       try:
-        disk = Ext2Disk(args[-1])
+        disk = Ext2Disk(args[0])
       except InvalidImageFormatError as e:
         print "Error! The specified disk image is not formatted properly."
         print
@@ -417,7 +417,7 @@ def main():
       except Exception as e:
         print "Error! The specified disk image could not be loaded."
         quit()
-      del args[-1]
+      del args[0]
     
     run(args, disk)
 
