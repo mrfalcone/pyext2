@@ -117,7 +117,7 @@ class Ext2File(object):
   
   @property
   def numBlocks(self):
-    """Gets the number of blocks used by the file on the filesystem."""
+    """Gets the number of data blocks used by the file on the filesystem."""
     return self._numBlocks
   
   @property
@@ -211,7 +211,7 @@ class Ext2File(object):
   
   def listContents(self):
     """Gets directory contents if this file object is a directory. Ignores
-    file types and treats name length as one byte."""
+    file type information and treats name length as one byte."""
     if not self.isDir:
       raise InvalidFileTypeError()
     
@@ -258,35 +258,86 @@ class Ext2File(object):
     return chunk
   
   
+  def _getUsedBlocks(self):
+    """Returns a list of ALL block ids in use by the file object, including data
+    and indirect blocks."""
+    blocks = []
+    for bid in self._inode.blocks:
+      if bid != 0:
+        blocks.append(bid)
+      else:
+        break
+    
+    # get indirect blocks
+    if self._inode.blocks[12] != 0:
+      for bid in self.__getBidListAtBid(self._inode.blocks[12]):
+        if bid != 0:
+          blocks.append(bid)
+        else:
+          return blocks
+    
+    # get doubly indirect blocks
+    if self._inode.blocks[13] != 0:
+      for indirectBid in self.__getBidListAtBid(self._inode.blocks[13]):
+        if indirectBid != 0:
+          blocks.append(indirectBid)
+          for bid in self.__getBidListAtBid(indirectBid):
+            if bid != 0:
+              blocks.append(bid)
+            else:
+              return blocks
+        else:
+          return blocks
+    
+    # get trebly indirect blocks
+    if self._inode.blocks[14] != 0:
+      for doublyIndirectBid in self.__getBidListAtBid(self._inode.blocks[14]):
+        if doublyIndirectBid != 0:
+          blocks.append(doublyIndirectBid)
+          for indirectBid in self.__getBidListAtBid(doublyIndirectBid):
+            if indirectBid != 0:
+              blocks.append(indirectBid)
+              for bid in self.__getBidListAtBid(indirectBid):
+                if bid != 0:
+                  blocks.append(bid)
+                else:
+                  return blocks
+        else:
+          return blocks
+    
+    return blocks
+  
+  
+  def __getBidListAtBid(self, bid):
+    bytes = self._disk._readBlock(bid)
+    return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
+  
+  
   def __lookupBlockId(self, index):
     """Looks up the block id corresponding to the block at the specified index,
     where the block index is the absolute block number within the file."""
     if index >= self.numBlocks:
       raise Exception("Block index out of range.")
     
-    def __bidListAtBid(bid):
-      bytes = self._disk._readBlock(bid)
-      return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
-    
     if index < self._numDirectBlocks:
       return self._inode.blocks[index]
     
     elif index < self._numIndirectBlocks:
-      directList = __bidListAtBid(self._inode.blocks[12])
+      directList = self.__getBidListAtBid(self._inode.blocks[12])
       return directList[index - self._numDirectBlocks]
     
     elif index < self._numDoublyIndirectBlocks:
-      indirectList = __bidListAtBid(self._inode.blocks[13])
+      indirectList = self.__getBidListAtBid(self._inode.blocks[13])
       index -= self._numIndirectBlocks # get index from start of doubly indirect list
-      directList = __bidListAtBid(indirectList[index / self._numIdsPerBlock])
+      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
       return directList[index % self._numIdsPerBlock]
     
     elif index < self._numTreblyIndirectBlocks:
-      doublyIndirectList = __bidListAtBid(self._inode.blocks[14])
+      doublyIndirectList = self.__getBidListAtBid(self._inode.blocks[14])
       index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
-      indirectList = __bidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
+      indirectList = self.__getBidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
       index = index % (self._numIdsPerBlock ** 2) # get index from start of indirect list
-      directList = __bidListAtBid(indirectList[index / self._numIdsPerBlock])
+      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
       return directList[index % self._numIdsPerBlock]
     
     raise Exception("Block not found.")
@@ -497,9 +548,11 @@ class Ext2Disk(object):
             report.messages.append("Block group descriptor table entry {0} at block group {1} has inconsistent field '{2}' with value '{3}' (primary value is '{4}').".format(entryNum, groupId, m, bgtCopyEntryMembers[m], bgtPrimaryEntryMembers[m]))
     
     
-    # validate inode references
+    # validate inode and block references
     inodes = self.__getUsedInodes()
     inodesReachable = dict(zip(inodes, [False] * len(inodes)))
+    blocks = self.__getUsedBlocks()
+    blocksAccessedBy = dict(zip(blocks, [None] * len(blocks)))
     
     q = Queue()
     q.put(self.rootDir)
@@ -510,18 +563,25 @@ class Ext2Disk(object):
           continue
         if f.isDir:
           q.put(f)
+        
+        # check inode references
         if not (f.isValid and f.inodeNum in inodesReachable):
           report.messages.append("The filesystem contains an entry for {0} but its inode is not marked as used (inode number {1}).".format(f.absolutePath, f.inodeNum))
         else:
           inodesReachable[f.inodeNum] = True
+        
+        # check block references
+        for bid in f._getUsedBlocks():
+          if not bid in blocksAccessedBy:
+            report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
+          elif blocksAccessedBy[bid]:
+            report.messages.append("Block id {0} is being referenced by both {1} and {2}.".format(bid, blocksReachable[bid], f.absolutePath))
+          else:
+            blocksAccessedBy[bid] = f.absolutePath
     
     for inodeNum in inodesReachable:
       if not inodesReachable[inodeNum]:
-        report.messages.append("Inode number {0} is marked as used but does not have a reachable directory entry.".format(inodeNum))
-    
-    
-    # validate data block references
-    # TODO
+        report.messages.append("Inode number {0} is marked as used but is not reachable from a directory entry.".format(inodeNum))
     
     return report
   
@@ -713,7 +773,6 @@ class Ext2Disk(object):
   
   
   
-  
   def _readInode(self, inodeNum):
     """Reads the specified inode. Ignores fragments, generation, and ACL data."""
     bgroupNum = (inodeNum - 1) / self._superblock.num_inodes_per_group
@@ -772,6 +831,37 @@ class Ext2Disk(object):
       inode.gid |= (osFields[2] << 16)
     
     return inode
+  
+  
+  
+  
+  
+  def __getUsedBlocks(self):
+    """Returns a list off all block ids currently in use by the filesystem."""
+    used = []
+    bitmaps = []
+    with open(self._imageFile, "rb") as f:
+      for bgroupDescEntry in self._bgroupDescTable.entries:
+        bitmapStartPos = bgroupDescEntry.bid_block_bitmap * self._superblock.block_size
+        bitmapSize = self._superblock.num_blocks_per_group / 8
+        f.seek(bitmapStartPos)
+        bitmapBytes = f.read(bitmapSize)
+        if len(bitmapBytes) < bitmapSize:
+          raise Exception("Invalid block bitmap.")
+        bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
+        
+    for groupNum,bitmap in enumerate(bitmaps):
+      for byteIndex, byte in enumerate(bitmap):
+        if byte != 0:
+          for i in range(8):
+            if (1 << i) & byte != 0:
+              bid = (groupNum * self._superblock.num_blocks_per_group) + (byteIndex * 8) + i + 1
+              used.append(bid)
+    
+    return used
+    
+  
+  
   
   
   def _readBlock(self, blockId):
