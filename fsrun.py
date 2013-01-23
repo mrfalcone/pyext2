@@ -356,8 +356,8 @@ def run(args, disk):
   """Runs the program on the specified disk with the given command line arguments."""
   showHelp = ("-h" in args)
   enterShell = ("-s" in args)
-  showGeneralInfo = ("-i" in args or "-c" in args)
-  showDetailedInfo = ("-d" in args or "-c" in args)
+  showGeneralInfo = ("-i" in args)
+  showDetailedInfo = ("-d" in args)
   showIntegrityCheck = ("-c" in args)
   suppressIndicator = ("-w" in args)
   fetch = ("-f" in args)

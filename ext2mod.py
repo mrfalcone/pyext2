@@ -214,8 +214,6 @@ class Ext2File(object):
     file types and treats name length as one byte."""
     if not self.isDir:
       raise InvalidFileTypeError()
-    if (self._inode.flags & 0x00001000) != 0:
-      raise UnsupportedOperationError() # indexed directory structure not supported
     
     contents = []
     for i in range(self.numBlocks):
@@ -274,22 +272,22 @@ class Ext2File(object):
       return self._inode.blocks[index]
     
     elif index < self._numIndirectBlocks:
-      direct = __bidListAtBid(self._inode.blocks[12])
-      return direct[index - self._numDirectBlocks]
+      directList = __bidListAtBid(self._inode.blocks[12])
+      return directList[index - self._numDirectBlocks]
     
     elif index < self._numDoublyIndirectBlocks:
-      indirect = __bidListAtBid(self._inode.blocks[13])
+      indirectList = __bidListAtBid(self._inode.blocks[13])
       index -= self._numIndirectBlocks # get index from start of doubly indirect list
-      direct = __bidListAtBid(indirect[index / self._numIdsPerBlock])
-      return direct[index % self._numIdsPerBlock]
+      directList = __bidListAtBid(indirectList[index / self._numIdsPerBlock])
+      return directList[index % self._numIdsPerBlock]
     
     elif index < self._numTreblyIndirectBlocks:
-      doublyIndirect = __bidListAtBid(self._inode.blocks[14])
+      doublyIndirectList = __bidListAtBid(self._inode.blocks[14])
       index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
-      indirect = __bidListAtBid(doublyIndirect[index / self._numIdsPerBlock])
-      index = index % self._numIdsPerBlock # get index from start of indirect list
-      direct = __bidListAtBid(indirect[index / self._numIdsPerBlock])
-      return direct[index % self._numIdsPerBlock]
+      indirectList = __bidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
+      index = index % (self._numIdsPerBlock ** 2) # get index from start of indirect list
+      directList = __bidListAtBid(indirectList[index / self._numIdsPerBlock])
+      return directList[index % self._numIdsPerBlock]
     
     raise Exception("Block not found.")
 
