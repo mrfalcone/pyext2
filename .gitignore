@@ -8,3 +8,7 @@
 *.ext2
 
 img/*
+
+.idea/*
+
+.idea/dictionaries/*

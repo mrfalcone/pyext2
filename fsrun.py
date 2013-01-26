@@ -7,6 +7,7 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import sys
+import os
 from time import clock
 from threading import Thread
 from Queue import Queue
@@ -278,49 +279,67 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   if not disk.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
-  try:
-    srcFile = disk.getFile(srcFilename)
-  except FileNotFoundError:
-    raise Exception("The source file cannot be found on the filesystem image.")
-  
-  if not srcFile.isRegular:
-    raise Exception("The source path does not point to a regular file.")
-  
-  try:
-    outFile = open("{0}/{1}".format(destDirectory, srcFile.name), "wb")
-  except:
-    raise Exception("Cannot access specified destination directory.")
-  
-  def __read(wait = None):
-    readCount = 0
-    with outFile:
-      byteBuffer = srcFile.read()
-      while len(byteBuffer) > 0:
-        outFile.write(byteBuffer)
-        readCount += len(byteBuffer)
-        if wait:
-          wait.progress += len(byteBuffer)
-        byteBuffer = srcFile.read()
-    return readCount
-  
-  if showWaitIndicator:
-    wait = WaitIndicatorThread("Fetching {0}...".format(srcFilename))
-    wait.maxProgress = srcFile.size
-    wait.start()
-    try:
-      transferStart = clock()
-      readCount = __read(wait)
-      transferTime = clock() - transferStart
-    finally:
-      wait.done = True
-    wait.join()
+  filesToFetch = []
+  if srcFilename.endswith("/*"):
+    directory = disk.getFile(srcFilename[:-1])
+    destDirectory = "{0}/{1}".format(destDirectory, directory.name)
+    for f in directory.listContents():
+      if f.isRegular:
+        filesToFetch.append(f.absolutePath)
   else:
-    transferStart = clock()
-    readCount = __read()
-    transferTime = clock() - transferStart
+    filesToFetch.append(srcFilename)
   
-  mbps = float(readCount) / (1024*1024) / transferTime
-  print "Read {0} bytes at {1:.2f} MB/sec.".format(readCount, mbps)
+  if len(filesToFetch) == 0:
+    raise Exception("No files exist in the specified directory.")
+  
+  if not os.path.exists(destDirectory):
+    print "Making directory {0}".format(destDirectory)
+    os.mkdirs(destDirectory)
+    
+  for srcFilename in filesToFetch:
+    try:
+      srcFile = disk.getFile(srcFilename)
+    except FileNotFoundError:
+      raise Exception("The source file cannot be found on the filesystem image.")
+    
+    if not srcFile.isRegular:
+      raise Exception("The source path does not point to a regular file.")
+    
+    try:
+      outFile = open("{0}/{1}".format(destDirectory, srcFile.name), "wb")
+    except:
+      raise Exception("Cannot access specified destination directory.")
+    
+    def __read(wait = None):
+      readCount = 0
+      with outFile:
+        byteBuffer = srcFile.read()
+        while len(byteBuffer) > 0:
+          outFile.write(byteBuffer)
+          readCount += len(byteBuffer)
+          if wait:
+            wait.progress += len(byteBuffer)
+          byteBuffer = srcFile.read()
+      return readCount
+    
+    if showWaitIndicator:
+      wait = WaitIndicatorThread("Fetching {0}...".format(srcFilename))
+      wait.maxProgress = srcFile.size
+      wait.start()
+      try:
+        transferStart = clock()
+        readCount = __read(wait)
+        transferTime = clock() - transferStart
+      finally:
+        wait.done = True
+      wait.join()
+    else:
+      transferStart = clock()
+      readCount = __read()
+      transferTime = clock() - transferStart
+    
+    mbps = float(readCount) / (1024*1024) / transferTime
+    print "Read {0} bytes at {1:.2f} MB/sec.".format(readCount, mbps)
   print
 
 
@@ -336,8 +355,9 @@ def printHelp():
   print "Options:"
   print "{0}{1}".format("-s".ljust(sp), "Enters shell mode.")
   print "{0}{1}".format("-h".ljust(sp), "Prints this message and exits.")
-  print "{0}{1}".format("-f filepath hostdir".ljust(sp), "Fetches the specified file from the filesystem")
-  print "{0}{1}".format("".ljust(sp), "into the specified host directory.")
+  print "{0}{1}".format("-f filepath [hostdir]".ljust(sp), "Fetches the specified file from the filesystem")
+  print "{0}{1}".format("".ljust(sp), "into the optional host directory. If no directory is")
+  print "{0}{1}".format("".ljust(sp), "specified, defaults to the current directory.")
   print
   print "{0}{1}".format("-i".ljust(sp), "Prints general information about the filesystem.")
   print "{0}{1}".format("-d".ljust(sp), "Scans the filesystem and prints detailed space")
@@ -385,11 +405,15 @@ def run(args, disk):
       destNameIndex = srcNameIndex + 1
       if len(args) <= srcNameIndex:
         print "Error! No source file specified to fetch."
-      elif len(args) <= destNameIndex:
-        print "Error! No destination directory specified for fetched file."
       else:
+        if len(args) <= destNameIndex:
+          destDirectory = "."
+        elif args[destNameIndex][0] == "-":
+          destDirectory = "."
+        else:
+          destDirectory = args[destNameIndex]
         try:
-          fetchFile(disk, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
+          fetchFile(disk, args[srcNameIndex], destDirectory, not suppressIndicator)
         except Exception as e:
           print "Error! {0}".format(e)
     if enterShell:

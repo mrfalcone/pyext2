@@ -14,7 +14,6 @@ from math import ceil
 from time import localtime, strftime
 
 
-
 class InvalidImageFormatError(Exception):
   """Thrown when the format of the disk image does not match the filesystem."""
   pass
@@ -158,6 +157,7 @@ class Ext2File(object):
       self._parentDir = parentDir
     if not self._parentDir.isDir:
       raise Exception("Invalid parent directory.")
+
     
     absPath = []
     if not (self._name == "." or self._name == ".."):
@@ -575,7 +575,7 @@ class Ext2Disk(object):
           if not bid in blocksAccessedBy:
             report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
           elif blocksAccessedBy[bid]:
-            report.messages.append("Block id {0} is being referenced by both {1} and {2}.".format(bid, blocksReachable[bid], f.absolutePath))
+            report.messages.append("Block id {0} is being referenced by both {1} and {2}.".format(bid, blocksAccessedBy[bid], f.absolutePath))
           else:
             blocksAccessedBy[bid] = f.absolutePath
     
