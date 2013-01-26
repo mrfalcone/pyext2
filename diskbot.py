@@ -11,8 +11,7 @@ import os
 from time import clock
 from threading import Thread
 from Queue import Queue
-from ext2mod import *
-
+from ext2 import *
 
 
 class FilesystemNotSupportedError(Exception):
@@ -33,6 +32,7 @@ class WaitIndicatorThread(Thread):
     self._pos = 0
   
   def run(self):
+    """Prints and updates the wait indicator until done becomes True."""
     while not self.done:
       sys.stdout.write(self._msg)
       sys.stdout.write(" ")
@@ -294,7 +294,7 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   
   if not os.path.exists(destDirectory):
     print "Making directory {0}".format(destDirectory)
-    os.mkdirs(destDirectory)
+    os.mkdir(destDirectory)
     
   for srcFilename in filesToFetch:
     try:
@@ -344,11 +344,36 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
 
 
 
+def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
+  """Pushes the specified local file to the specified destination directory on the disk image filesystem."""
+  if not disk.fsType == "EXT2":
+    raise FilesystemNotSupportedError()
+  
+  destFilename = "{0}/{1}".format(destDirectory, srcFilename[srcFilename.rfind("/")+1:])
+  
+  try:
+    directory = disk.getFile(destDirectory)
+  except FileNotFoundError:
+    raise Exception("Destination directory does not exist.")
+  
+  try:
+    pass
+  except FileAlreadyExistsError:
+    raise Exception("That file already exists in the specified directory.")
+  
+  print "Pushing {0} to {1}".format(srcFilename, destDirectory)
+  # TODO create new file, read source, write bytes to file
+  disk.makeDirFile("/lost+found/files")
+  raise Exception("Not implemented.")
+
+
+
 
 
 # ========= MAIN APPLICATION ==============================================
 
 def printHelp():
+  """Prints the help screen for the main application, with usage and command options."""
   sp = 26
   print "Usage: {0} disk_image_file options".format(sys.argv[0])
   print
@@ -356,8 +381,11 @@ def printHelp():
   print "{0}{1}".format("-s".ljust(sp), "Enters shell mode.")
   print "{0}{1}".format("-h".ljust(sp), "Prints this message and exits.")
   print "{0}{1}".format("-f filepath [hostdir]".ljust(sp), "Fetches the specified file from the filesystem")
-  print "{0}{1}".format("".ljust(sp), "into the optional host directory. If no directory is")
-  print "{0}{1}".format("".ljust(sp), "specified, defaults to the current directory.")
+  print "{0}{1}".format("".ljust(sp), "into the optional host directory. If no directory")
+  print "{0}{1}".format("".ljust(sp), "is specified, defaults to the current directory.")
+  print
+  print "{0}{1}".format("-p hostfile destpath".ljust(sp), "Pushes the specified host file into the specified")
+  print "{0}{1}".format("".ljust(sp), "directory on the filesystem.")
   print
   print "{0}{1}".format("-i".ljust(sp), "Prints general information about the filesystem.")
   print "{0}{1}".format("-d".ljust(sp), "Scans the filesystem and prints detailed space")
@@ -381,15 +409,12 @@ def run(args, disk):
   showIntegrityCheck = ("-c" in args)
   suppressIndicator = ("-w" in args)
   fetch = ("-f" in args)
+  push = ("-p" in args)
   
-  if showHelp:
+  if showHelp or not (showGeneralInfo or enterShell or showDetailedInfo or showIntegrityCheck or fetch or push):
     printHelp()
     quit()
   
-  if disk is None:
-    print "Error! No disk image specified."
-  elif not (showGeneralInfo or enterShell or showDetailedInfo or showIntegrityCheck or fetch):
-    printHelp()
   else:
     info = []
     if showGeneralInfo:
@@ -400,6 +425,20 @@ def run(args, disk):
       info.extend(generateIntegrityReport(disk, not suppressIndicator))
     if len(info) > 0:
       printInfoPairs(info)
+      
+    if push:
+      srcNameIndex = args.index("-p") + 1
+      destNameIndex = srcNameIndex + 1
+      if len(args) <= srcNameIndex:
+        print "Error! No source file specified to push."
+      elif len(args) <= destNameIndex:
+        print "Error! No destination directory specified for pushed file."
+      else:
+        try:
+          pushFile(disk, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
+        except Exception as e:
+          print "Error! {0}".format(e)
+    
     if fetch:
       srcNameIndex = args.index("-f") + 1
       destNameIndex = srcNameIndex + 1
@@ -416,6 +455,7 @@ def run(args, disk):
           fetchFile(disk, args[srcNameIndex], destDirectory, not suppressIndicator)
         except Exception as e:
           print "Error! {0}".format(e)
+    
     if enterShell:
       shell(disk)
 
@@ -423,27 +463,27 @@ def run(args, disk):
 
 def main():
   """Main entry point of the application."""
+  disk = None
   args = list(sys.argv)
   if len(args) < 3:
     printHelp()
     quit()
   else:
     del args[0]
-    if args[0][0] == "-":
-      disk = None
-    else:
+    if not args[0][0] == "-":
       try:
         disk = Ext2Disk(args[0])
-      except InvalidImageFormatError as e:
+      except InvalidImageFormatError:
         print "Error! The specified disk image is not formatted properly."
         print
         quit()
-      except Exception as e:
-        print "Error! The specified disk image could not be loaded."
-        quit()
       del args[0]
+
+    if disk:
+      run(args, disk)
+    else:
+      print "Error! No disk image specified."
     
-    run(args, disk)
 
 
 main()
