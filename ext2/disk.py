@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Defines the disk object used by the ext2 module.
+Defines classes for the disk object used by the ext2 module.
 """
 __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
@@ -11,6 +11,7 @@ import inspect
 from Queue import Queue
 from struct import pack, unpack, unpack_from
 from math import ceil
+from os import fsync
 from .error import *
 from .file import Ext2File
 
@@ -43,63 +44,123 @@ class Ext2Disk(object):
   @property
   def revision(self):
     """Gets the filesystem revision string formatted as MAJOR.MINOR."""
+    assert self.isValid, "Filesystem is not valid."
     return "{0}.{1}".format(self._superblock.rev_level, self._superblock.rev_minor)
   
   @property
   def totalSpace(self):
     """Gets the total filesystem size in bytes."""
+    assert self.isValid, "Filesystem is not valid."
     return self._superblock.block_size * self._superblock.num_blocks
   
   @property
   def freeSpace(self):
     """Gets the number of free bytes."""
+    assert self.isValid, "Filesystem is not valid."
     return self._superblock.block_size * self._superblock.num_free_blocks
   
   @property
   def usedSpace(self):
     """Gets the number of used bytes."""
+    assert self.isValid, "Filesystem is not valid."
     return self.totalSpace - self.freeSpace
   
   @property
   def blockSize(self):
     """Gets the block size in bytes."""
+    assert self.isValid, "Filesystem is not valid."
     return self._superblock.block_size
   
   @property
   def numBlockGroups(self):
     """Gets the number of block groups."""
+    assert self.isValid, "Filesystem is not valid."
     return len(self._bgroupDescTable.entries)
   
   @property
   def numInodes(self):
     """Gets the total number of inodes."""
+    assert self.isValid, "Filesystem is not valid."
     return self._superblock.num_inodes
   
   @property
   def rootDir(self):
     """Gets the file object representing the root directory."""
+    assert self.isValid, "Filesystem is not valid."
     return self._rootDir
+
+  @property
+  def isValid(self):
+    """Gets whether the disk's filesystem is valid and mounted."""
+    return self._isValid
+  
+  
+  
+  
+  # LIFECYCLE METHODS ------------------------------------
+  
+  def __init__(self, imageFilename):
+    """Constructs a new Ext2 disk from the specified image filename."""
+    self._imageFile = None
+    self._imageFilename = imageFilename
+    self._isValid = False
+  
+  def __del__(self):
+    """Destructor that unmounts the filesystem if it has not been unmounted."""
+    if self._imageFile:
+      self.unmount()
+  
+  def __enter__ (self):
+    """Mounts the filesystem and returns the root directory."""
+    self.mount()
+    return self.rootDir
+
+  def __exit__ (self, type, value, tb):
+    """Unmounts the filesystem and re-raises any exception that occurred."""
+    self.unmount()
+  
+  
+  
+  def mount(self):
+    """Mounts the Ext2 disk for reading and writing and reads the root directory. Raises an
+    InvalidImageFormatError if the root directory cannot be read."""
+    self._imageFile = open(self._imageFilename, "r+b")
+    try:
+      self._superblock = self.__readSuperblock(1024)
+      self._bgroupDescTable = self.__readBGroupDescriptorTable(self._superblock)
+      self._isValid = True
+      self._rootDir = Ext2File("", None, 2, self)
+    except:
+      if self._imageFile:
+        self._imageFile.close()
+      self._imageFile = None
+      self._isValid = False
+      raise InvalidImageFormatError()
+  
+  
+  
+  def unmount(self):
+    """Unmounts the Ext2 disk so that reading and writing may no longer occur, and closes
+    access to the disk image file."""
+    if self._imageFile:
+      self._imageFile.flush()
+      fsync(self._imageFile.fileno())
+      self._imageFile.close()
+    self._imageFile = None
+    self._isValid = False
+  
   
   
   
   
   # PUBLIC METHODS ------------------------------------
   
-  def __init__(self, imageFile):
-    """Constructs a new Ext2 disk from the specified image file. Raises an
-    InvalidImageFormatError if the root directory cannot be loaded."""
-    self._imageFile = imageFile
-    try:
-      self._superblock = self.__readSuperblock(1024)
-      self._bgroupDescTable = self.__readBGroupDescriptorTable(self._superblock)
-      self._rootDir = Ext2File("", None, 2, self)
-    except:
-      raise InvalidImageFormatError()
-  
   
   def getFile(self, absolutePath):
     """Looks up and returns the file specified by the absolute path. Raises a
     FileNotFoundError if the file object cannot be found."""
+    assert self.isValid, "Filesystem is not valid."
+    
     pathParts = re.compile("/+").split(absolutePath)
     if len(pathParts) == 0:
       raise FileNotFoundError()
@@ -128,6 +189,7 @@ class Ext2Disk(object):
   
   def makeDirFile(self, absolutePath):
     """Creates a new directory on the filesystem and returns its file object."""
+    assert self.isValid, "Filesystem is not valid."
     
     # make sure destination does not already exist
     destExists = True
@@ -160,18 +222,22 @@ class Ext2Disk(object):
   
   def makeRegularFile(self, absolutePath):
     """Creates a new regular file on the filesystem and returns its file object."""
+    assert self.isValid, "Filesystem is not valid."
     pass
   
   
   
   def makeLink(self, absolutePath, linkedFile, isSymbolic):
     """Creates a new link to the specified file object and returns the link file object."""
+    assert self.isValid, "Filesystem is not valid."
     pass
   
   
   
   def scanBlockGroups(self):
     """Scans all block groups and returns an information report about them."""
+    assert self.isValid, "Filesystem is not valid."
+    
     report = InformationReport()
     
     # count files and directories
@@ -208,6 +274,8 @@ class Ext2Disk(object):
   
   def checkIntegrity(self):
     """Evaluates the integrity of the filesystem and returns an information report."""
+    assert self.isValid, "Filesystem is not valid."
+    
     report = InformationReport()
     
     # basic integrity checks
@@ -308,9 +376,8 @@ class Ext2Disk(object):
     """Reads the superblock at the specified position in bytes. Returns a structure
     containing the superblock values. Structure members prefixed with an underscore are
     unique to each copy of the superblock."""
-    with open(self._imageFile, "rb") as f:
-      f.seek(startPos)
-      sbBytes = f.read(1024)
+    self._imageFile.seek(startPos)
+    sbBytes = self._imageFile.read(1024)
     if len(sbBytes) < 1024:
       raise Exception("Invalid superblock.")
     
@@ -434,10 +501,9 @@ class Ext2Disk(object):
     groupStart = superblock._superblock_group_nr * superblock.num_blocks_per_group * superblock.block_size
     startPos = groupStart + (superblock.block_size * (superblock.first_block_id + 1))
     tableSize = superblock.num_block_groups * 32
-    
-    with open(self._imageFile, "rb") as f:
-      f.seek(startPos)
-      bgdtBytes = f.read(tableSize)
+
+    self._imageFile.seek(startPos)
+    bgdtBytes = self._imageFile.read(tableSize)
     if len(bgdtBytes) < tableSize:
       raise Exception("Invalid block group descriptor table.")
     
@@ -463,15 +529,14 @@ class Ext2Disk(object):
     filesystem."""
     used = []
     bitmaps = []
-    with open(self._imageFile, "rb") as f:
-      for bgroupDescEntry in self._bgroupDescTable.entries:
-        bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
-        bitmapSize = self._superblock.num_inodes_per_group / 8
-        f.seek(bitmapStartPos)
-        bitmapBytes = f.read(bitmapSize)
-        if len(bitmapBytes) < bitmapSize:
-          raise Exception("Invalid inode bitmap.")
-        bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
+    for bgroupDescEntry in self._bgroupDescTable.entries:
+      bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
+      bitmapSize = self._superblock.num_inodes_per_group / 8
+      self._imageFile.seek(bitmapStartPos)
+      bitmapBytes = self._imageFile.read(bitmapSize)
+      if len(bitmapBytes) < bitmapSize:
+        raise Exception("Invalid inode bitmap.")
+      bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
     
     for groupNum,bitmap in enumerate(bitmaps):
       for byteIndex, byte in enumerate(bitmap):
@@ -499,12 +564,11 @@ class Ext2Disk(object):
     
     tableStartPos = bgroupDescEntry.bid_inode_table * self._superblock.block_size
     inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inode_size)
-    
-    with open(self._imageFile, "rb") as f:
-      f.seek(bitmapStartPos + bitmapByteIndex)
-      bitmapByte = unpack("B", f.read(1))[0]
-      f.seek(inodeStartPos)
-      inodeBytes = f.read(self._superblock.inode_size)
+
+    self._imageFile.seek(bitmapStartPos + bitmapByteIndex)
+    bitmapByte = unpack("B", self._imageFile.read(1))[0]
+    self._imageFile.seek(inodeStartPos)
+    inodeBytes = self._imageFile.read(self._superblock.inode_size)
     if len(inodeBytes) < self._superblock.inode_size:
       raise Exception("Invalid inode.")
     
@@ -554,15 +618,14 @@ class Ext2Disk(object):
     """Returns a list off all block ids currently in use by the filesystem."""
     used = []
     bitmaps = []
-    with open(self._imageFile, "rb") as f:
-      for bgroupDescEntry in self._bgroupDescTable.entries:
-        bitmapStartPos = bgroupDescEntry.bid_block_bitmap * self._superblock.block_size
-        bitmapSize = self._superblock.num_blocks_per_group / 8
-        f.seek(bitmapStartPos)
-        bitmapBytes = f.read(bitmapSize)
-        if len(bitmapBytes) < bitmapSize:
-          raise Exception("Invalid block bitmap.")
-        bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
+    for bgroupDescEntry in self._bgroupDescTable.entries:
+      bitmapStartPos = bgroupDescEntry.bid_block_bitmap * self._superblock.block_size
+      bitmapSize = self._superblock.num_blocks_per_group / 8
+      self._imageFile.seek(bitmapStartPos)
+      bitmapBytes = self._imageFile.read(bitmapSize)
+      if len(bitmapBytes) < bitmapSize:
+        raise Exception("Invalid block bitmap.")
+      bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
         
     for groupNum,bitmap in enumerate(bitmaps):
       for byteIndex, byte in enumerate(bitmap):
@@ -580,10 +643,8 @@ class Ext2Disk(object):
   
   def _readBlock(self, blockId):
     """Reads the entire block specified by the given block id."""
-    startPos = blockId * self._superblock.block_size
-    with open(self._imageFile, "rb") as f:
-      f.seek(startPos)
-      bytes = f.read(self._superblock.block_size)
+    self._imageFile.seek(blockId * self._superblock.block_size)
+    bytes = self._imageFile.read(self._superblock.block_size)
     if len(bytes) < self._superblock.block_size:
       raise Exception("Invalid block.")
     return bytes
@@ -603,22 +664,21 @@ class Ext2Disk(object):
         break
     if bitmapStartPos is None:
       raise Exception("No free inodes.")
+
+    self._imageFile.seek(bitmapStartPos)
+    bitmapBytes = self._imageFile.read(bitmapSize)
+    if len(bitmapBytes) < bitmapSize:
+      raise Exception("Invalid inode bitmap.")
     
-    with open(self._imageFile, "r+b") as f:
-      f.seek(bitmapStartPos)
-      bitmapBytes = f.read(bitmapSize)
-      if len(bitmapBytes) < bitmapSize:
-        raise Exception("Invalid inode bitmap.")
-      
-      bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
-      for byteIndex, byte in enumerate(bitmap):
-        if byte != 255:
-          for i in range(8):
-            if (1 << i) & byte == 0:
-              inum = (bgroupNum * self._superblock.num_inodes_per_group) + (byteIndex * 8) + i + 1
-              f.seek(bitmapStartPos + byteIndex)
-              f.write(byte | (1 << i))
-              # TODO mark as used, update bgdt, superblock
+    bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
+    for byteIndex, byte in enumerate(bitmap):
+      if byte != 255:
+        for i in range(8):
+          if (1 << i) & byte == 0:
+            inum = (bgroupNum * self._superblock.num_inodes_per_group) + (byteIndex * 8) + i + 1
+            self._imageFile.seek(bitmapStartPos + byteIndex)
+            self._imageFile.write(byte | (1 << i))
+            # TODO mark as used, update bgdt, superblock
   
 
 

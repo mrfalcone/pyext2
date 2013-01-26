@@ -468,22 +468,21 @@ def main():
   if len(args) < 3:
     printHelp()
     quit()
+  elif args[1][0] == "-":
+    printHelp()
+    quit()
   else:
-    del args[0]
-    if not args[0][0] == "-":
-      try:
-        disk = Ext2Disk(args[0])
-      except InvalidImageFormatError:
-        print "Error! The specified disk image is not formatted properly."
-        print
-        quit()
-      del args[0]
+    filename = args[1]
+    del args[0:1]
+    try:
+      disk = Ext2Disk(filename)
+      with disk:
+        run(args, disk)
+    except InvalidImageFormatError:
+      print "Error! The specified disk image is not formatted properly."
+      print
+      quit()
 
-    if disk:
-      run(args, disk)
-    else:
-      print "Error! No disk image specified."
-    
 
 
 main()
