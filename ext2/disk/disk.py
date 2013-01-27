@@ -9,12 +9,13 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 import re
 import inspect
 from Queue import Queue
-from struct import unpack, unpack_from
+from struct import unpack
 from os import fsync
 from ..error import *
 from ..file import Ext2File
 from .superblock import _Superblock
 from .bgdt import _BGDT
+from .inode import _Inode
 
 
 class InformationReport(object):
@@ -24,10 +25,6 @@ class InformationReport(object):
 
 class Ext2Disk(object):
   """Models a disk image file formatted to the Ext2 filesystem."""
-  
-  
-  class __Inode:
-    pass
   
   
   # PROPERTIES -------------------------------------------------
@@ -71,7 +68,7 @@ class Ext2Disk(object):
   def numBlockGroups(self):
     """Gets the number of block groups."""
     assert self.isValid, "Filesystem is not valid."
-    return len(self._bgroupDescTable.entries)
+    return len(self._bgdt.entries)
   
   @property
   def numInodes(self):
@@ -123,7 +120,7 @@ class Ext2Disk(object):
     self._imageFile = open(self._imageFilename, "r+b")
     try:
       self._superblock = _Superblock.read(1024, self._imageFile)
-      self._bgroupDescTable = _BGDT.read(0, self._superblock, self._imageFile)
+      self._bgdt = _BGDT.read(0, self._superblock, self._imageFile)
       self._isValid = True
       self._rootDir = Ext2File("", None, 2, self)
     except:
@@ -210,9 +207,19 @@ class Ext2Disk(object):
     parentDir = self.getFile(parentPath)
     
     
-    # TODO allocate inode
-    print parentDir.absolutePath
-    print fileName
+    mode = 0
+    mode |= 0x4000 # set directory
+    mode |= 0x0100 # user read
+    mode |= 0x0080 # user write
+    mode |= 0x0040 # user execute
+    mode |= 0x0020 # group read
+    mode |= 0x0008 # group execute
+    mode |= 0x0004 # others read
+    mode |= 0x0001 # others execute
+    inode = self._allocateInode(mode, 1000, 1000)
+    # TODO use inode
+    
+    print inspect.getmembers(inode)
   
   
   
@@ -257,7 +264,7 @@ class Ext2Disk(object):
     
     # report block group information
     report.groupReports = []
-    for i,entry in enumerate(self._bgroupDescTable.entries):
+    for i,entry in enumerate(self._bgdt.entries):
       groupReport = InformationReport()
       groupReport.numFreeBlocks = entry.numFreeBlocks
       groupReport.numFreeInodes = entry.numFreeInodes
@@ -283,7 +290,7 @@ class Ext2Disk(object):
     
     # check consistency across superblock/group table copies
     sbMembers = dict(inspect.getmembers(self._superblock))
-    bgtMembersEntries = map(dict, map(inspect.getmembers, self._bgroupDescTable.entries))
+    bgtMembersEntries = map(dict, map(inspect.getmembers, self._bgdt.entries))
     for groupId in self._superblock.copyLocations:
       if groupId == 0:
         continue
@@ -373,8 +380,8 @@ class Ext2Disk(object):
     filesystem."""
     used = []
     bitmaps = []
-    for bgroupDescEntry in self._bgroupDescTable.entries:
-      bitmapStartPos = bgroupDescEntry.inodeBitmapLocation * self._superblock.blockSize
+    for bgdtEntry in self._bgdt.entries:
+      bitmapStartPos = bgdtEntry.inodeBitmapLocation * self._superblock.blockSize
       bitmapSize = self._superblock.numInodesPerGroup / 8
       self._imageFile.seek(bitmapStartPos)
       bitmapBytes = self._imageFile.read(bitmapSize)
@@ -395,75 +402,12 @@ class Ext2Disk(object):
   
   
   
-  
-  def _readInode(self, inodeNum):
-    """Reads the specified inode."""
-    bgroupNum = (inodeNum - 1) / self._superblock.numInodesPerGroup
-    bgroupIndex = (inodeNum - 1) % self._superblock.numInodesPerGroup
-    bgroupDescEntry = self._bgroupDescTable.entries[bgroupNum]
-    
-    bitmapStartPos = bgroupDescEntry.inodeBitmapLocation * self._superblock.blockSize
-    bitmapByteIndex = bgroupIndex / 8
-    usedTest = 1 << (bgroupIndex % 8)
-    
-    tableStartPos = bgroupDescEntry.inodeTableLocation * self._superblock.blockSize
-    inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inodeSize)
-
-    self._imageFile.seek(bitmapStartPos + bitmapByteIndex)
-    bitmapByte = unpack("B", self._imageFile.read(1))[0]
-    self._imageFile.seek(inodeStartPos)
-    inodeBytes = self._imageFile.read(self._superblock.inodeSize)
-    if len(inodeBytes) < self._superblock.inodeSize:
-      raise Exception("Invalid inode.")
-    
-    if self._superblock.revisionMajor == 0:
-      fields = unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
-    else:
-      fields = unpack_from("<2H5IHh4xI4x15I8xI", inodeBytes)
-    
-    if self._superblock.creatorOS == "LINUX":
-      osFields = unpack_from("<4x2H", inodeBytes, 116)
-    elif self._superblock.creatorOS == "HURD":
-      osFields = unpack_from("<2x3H", inodeBytes, 116)
-    
-    inode = self.__Inode()
-    inode.num = inodeNum
-    inode.used = (bitmapByte & usedTest != 0)
-    inode.mode = fields[0]
-    inode.uid = fields[1]
-    inode.size = fields[2]
-    inode.time_accessed = fields[3]
-    inode.time_created = fields[4]
-    inode.time_modified = fields[5]
-    inode.time_deleted = fields[6]
-    inode.gid = fields[7]
-    inode.num_links = fields[8]
-    inode.flags = fields[9]
-    inode.blocks = []
-    for i in range(15):
-      inode.blocks.append(fields[10+i])
-    if self._superblock.revisionMajor > 0:
-      inode.size |= (fields[25] << 32)
-    if self._superblock.creatorOS == "LINUX":
-      inode.uid |= (osFields[0] << 16)
-      inode.gid |= (osFields[1] << 16)
-    elif self._superblock.creatorOS == "HURD":
-      inode.mode |= (osFields[0] << 16)
-      inode.uid |= (osFields[1] << 16)
-      inode.gid |= (osFields[2] << 16)
-    
-    return inode
-  
-  
-  
-  
-  
   def __getUsedBlocks(self):
     """Returns a list off all block ids currently in use by the filesystem."""
     used = []
     bitmaps = []
-    for bgroupDescEntry in self._bgroupDescTable.entries:
-      bitmapStartPos = bgroupDescEntry.blockBitmapLocation * self._superblock.blockSize
+    for bgdtEntry in self._bgdt.entries:
+      bitmapStartPos = bgdtEntry.blockBitmapLocation * self._superblock.blockSize
       bitmapSize = self._superblock.numBlocksPerGroup / 8
       self._imageFile.seek(bitmapStartPos)
       bitmapBytes = self._imageFile.read(bitmapSize)
@@ -484,7 +428,6 @@ class Ext2Disk(object):
   
   
   
-  
   def _readBlock(self, blockId):
     """Reads the entire block specified by the given block id."""
     self._imageFile.seek(blockId * self._superblock.blockSize)
@@ -495,35 +438,16 @@ class Ext2Disk(object):
   
   
   
+  def _readInode(self, inodeNum):
+    """Reads the specified inode number and returns the inode object."""
+    return _Inode.read(inodeNum, self._bgdt, self._superblock, self._imageFile)
   
-  def _allocateInode(self, isForDirectory):
-    """Finds the first free inode, marks it as used, and returns the inode number."""
-    bitmapStartPos = None
-    bgroupNum = 0
-    bitmapSize = self._superblock.numInodesPerGroup / 8
-    
-    for bgroupNum, bgroupDescEntry in enumerate(self._bgroupDescTable.entries):
-      if bgroupDescEntry.num_free_inodes > 0:
-        bitmapStartPos = bgroupDescEntry.inodeBitmapLocation * self._superblock.blockSize
-        break
-    if bitmapStartPos is None:
-      raise Exception("No free inodes.")
+  
+  
+  def _allocateInode(self, mode, uid, gid):
+    """Allocates a new inode and returns the inode object."""
+    return _Inode.new(self._bgdt, self._superblock, self._imageFile, mode, uid, gid)
 
-    self._imageFile.seek(bitmapStartPos)
-    bitmapBytes = self._imageFile.read(bitmapSize)
-    if len(bitmapBytes) < bitmapSize:
-      raise Exception("Invalid inode bitmap.")
-    
-    bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
-    for byteIndex, byte in enumerate(bitmap):
-      if byte != 255:
-        for i in range(8):
-          if (1 << i) & byte == 0:
-            inum = (bgroupNum * self._superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
-            self._imageFile.seek(bitmapStartPos + byteIndex)
-            self._imageFile.write(byte | (1 << i))
-            # TODO mark as used, update bgdt, superblock
-  
 
 
 

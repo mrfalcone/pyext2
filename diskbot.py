@@ -364,7 +364,7 @@ def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   print "Pushing {0} to {1}".format(srcFilename, destDirectory)
   # TODO create new file, read source, write bytes to file
   disk.makeDirFile("/lost+found/files")
-  raise Exception("Not implemented.")
+  
 
 
 

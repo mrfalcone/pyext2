@@ -34,12 +34,12 @@ class Ext2File(object):
   @property
   def inodeNum(self):
     """Gets the inode number of this file on the filesystem."""
-    return self._inode.num
+    return self._inode.number
 
   @property
   def isValid(self):
     """Returns True if the inode of this file is in use, or False if it is not."""
-    return self._inode.used
+    return self._inode.isUsed
 
   @property
   def isDir(self):
@@ -64,7 +64,7 @@ class Ext2File(object):
   @property
   def numLinks(self):
     """Gets the number of hard links to this file object."""
-    return self._inode.num_links
+    return self._inode.numLinks
 
   @property
   def uid(self):
@@ -91,17 +91,17 @@ class Ext2File(object):
   @property
   def timeCreated(self):
     """Gets the time and date the file was last created as a string."""
-    return strftime("%b %d %I:%M %Y", localtime(self._inode.time_created))
+    return strftime("%b %d %I:%M %Y", localtime(self._inode.timeCreated))
 
   @property
   def timeAccessed(self):
     """Gets the time and date the file was last accessed as a string."""
-    return strftime("%b %d %I:%M %Y", localtime(self._inode.time_accessed))
+    return strftime("%b %d %I:%M %Y", localtime(self._inode.timeAccessed))
 
   @property
   def timeModified(self):
     """Gets the time and date the file was last modified as a string."""
-    return strftime("%b %d %I:%M %Y", localtime(self._inode.time_modified))
+    return strftime("%b %d %I:%M %Y", localtime(self._inode.timeModified))
 
   @property
   def parentDir(self):

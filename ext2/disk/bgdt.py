@@ -11,6 +11,7 @@ from struct import unpack_from
 
 class _BGDTEntry(object):
   """Models an entry in the block group descriptor table. For internal use only."""
+  _saveCopies = True
 
 
   # READ-ONLY PROPERTIES -------------------------------------
@@ -113,7 +114,7 @@ class _BGDT(object):
   
   
   def __init__(self, bgdtBytes, superblock, imageFile):
-    """Reads the block group descriptor table at the specified group number."""
+    """Constructs a new BGDT from the given byte array."""
     self._entries = []
     for i in range(superblock.numBlockGroups):
       startPos = i * 32
