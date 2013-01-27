@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Defines classes for the disk object used by the ext2 module.
+Defines the disk class used by the ext2 module.
 """
 __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
@@ -10,10 +10,10 @@ import re
 import inspect
 from Queue import Queue
 from struct import pack, unpack, unpack_from
-from math import ceil
 from os import fsync
-from .error import *
-from .file import Ext2File
+from ..error import *
+from ..file import Ext2File
+from .superblock import _Superblock
 
 
 class InformationReport(object):
@@ -24,8 +24,6 @@ class InformationReport(object):
 class Ext2Disk(object):
   """Models a disk image file formatted to the Ext2 filesystem."""
   
-  class __Superblock:
-    pass
   class __BGroupDescriptorTable:
     pass
   class __BGroupDescriptorEntry:
@@ -45,19 +43,19 @@ class Ext2Disk(object):
   def revision(self):
     """Gets the filesystem revision string formatted as MAJOR.MINOR."""
     assert self.isValid, "Filesystem is not valid."
-    return "{0}.{1}".format(self._superblock.rev_level, self._superblock.rev_minor)
+    return "{0}.{1}".format(self._superblock.revisionMajor, self._superblock.revisionMinor)
   
   @property
   def totalSpace(self):
     """Gets the total filesystem size in bytes."""
     assert self.isValid, "Filesystem is not valid."
-    return self._superblock.block_size * self._superblock.num_blocks
+    return self._superblock.blockSize * self._superblock.numBlocks
   
   @property
   def freeSpace(self):
     """Gets the number of free bytes."""
     assert self.isValid, "Filesystem is not valid."
-    return self._superblock.block_size * self._superblock.num_free_blocks
+    return self._superblock.blockSize * self._superblock.numFreeBlocks
   
   @property
   def usedSpace(self):
@@ -69,7 +67,7 @@ class Ext2Disk(object):
   def blockSize(self):
     """Gets the block size in bytes."""
     assert self.isValid, "Filesystem is not valid."
-    return self._superblock.block_size
+    return self._superblock.blockSize
   
   @property
   def numBlockGroups(self):
@@ -81,7 +79,7 @@ class Ext2Disk(object):
   def numInodes(self):
     """Gets the total number of inodes."""
     assert self.isValid, "Filesystem is not valid."
-    return self._superblock.num_inodes
+    return self._superblock.numInodes
   
   @property
   def rootDir(self):
@@ -126,8 +124,8 @@ class Ext2Disk(object):
     InvalidImageFormatError if the root directory cannot be read."""
     self._imageFile = open(self._imageFilename, "r+b")
     try:
-      self._superblock = self.__readSuperblock(1024)
-      self._bgroupDescTable = self.__readBGroupDescriptorTable(self._superblock)
+      self._superblock = _Superblock.read(1024, self._imageFile)
+      self._bgroupDescTable = self.__readBGroupDescriptorTable(0)
       self._isValid = True
       self._rootDir = Ext2File("", None, 2, self)
     except:
@@ -279,25 +277,25 @@ class Ext2Disk(object):
     report = InformationReport()
     
     # basic integrity checks
-    report.hasMagicNumber = (self._superblock.magic_number == 0xEF53)
-    report.numSuperblockCopies = len(self._superblock.copy_block_group_ids)
-    report.copyLocations = list(self._superblock.copy_block_group_ids)
+    report.hasMagicNumber = self._superblock.isValidExt2
+    report.numSuperblockCopies = len(self._superblock.copyLocations)
+    report.copyLocations = list(self._superblock.copyLocations)
     report.messages = []
     
     
     # check consistency across superblock/group table copies
     sbMembers = dict(inspect.getmembers(self._superblock))
     bgtMembersEntries = map(dict, map(inspect.getmembers, self._bgroupDescTable.entries))
-    for groupId in self._superblock.copy_block_group_ids:
+    for groupId in self._superblock.copyLocations:
       if groupId == 0:
         continue
       
       # evaluate superblock copy consistency
       try:
-        startPos = 1024 + groupId * self._superblock.num_blocks_per_group * self._superblock.block_size
-        sbCopy = self.__readSuperblock(startPos)
+        startPos = 1024 + groupId * self._superblock.numBlocksPerGroup * self._superblock.blockSize
+        sbCopy = _Superblock.read(startPos, self._imageFile)
         sbCopyMembers = dict(inspect.getmembers(sbCopy))
-      except:
+      except Exception as e:
         report.messages.append("Superblock at block group {0} could not be read.".format(groupId))
         continue
       for m in sbMembers:
@@ -310,7 +308,7 @@ class Ext2Disk(object):
       
       # evaluate block group descriptor table consistency
       try:
-        bgtCopy = self.__readBGroupDescriptorTable(sbCopy)
+        bgtCopy = self.__readBGroupDescriptorTable(groupId)
         bgtCopyMembersEntries = map(dict, map(inspect.getmembers, bgtCopy.entries))
       except:
         report.messages.append("Block group descriptor table at block group {0} could not be read.".format(groupId))
@@ -372,135 +370,13 @@ class Ext2Disk(object):
   
   # PRIVATE METHODS ------------------------------------
   
-  def __readSuperblock(self, startPos):
-    """Reads the superblock at the specified position in bytes. Returns a structure
-    containing the superblock values. Structure members prefixed with an underscore are
-    unique to each copy of the superblock."""
-    self._imageFile.seek(startPos)
-    sbBytes = self._imageFile.read(1024)
-    if len(sbBytes) < 1024:
-      raise Exception("Invalid superblock.")
-    
-    sb = self.__Superblock()
-    
-    # read standard fields
-    fields = unpack_from("<7Ii5I6H4I2H", sbBytes)
-    sb.num_inodes = fields[0]
-    sb.num_blocks = fields[1]
-    sb.num_res_blocks = fields[2]
-    sb.num_free_blocks = fields[3]
-    sb.num_free_inodes = fields[4]
-    sb.first_block_id = fields[5]
-    sb.block_size = 1024 << fields[6]
-    if fields[7] > 0:
-      sb.frag_size = 1024 << fields[7]
-    else:
-      sb.frag_size = 1024 >> abs(fields[7])
-    sb.num_blocks_per_group = fields[8]
-    sb.num_frags_per_group = fields[9]
-    sb.num_inodes_per_group = fields[10]
-    sb.time_last_mount = fields[11]
-    sb.time_last_write = fields[12]
-    sb.num_mounts_since_check = fields[13]
-    sb.num_mounts_max = fields[14]
-    sb.magic_number = fields[15]
-    if fields[16] == 1:
-      sb.state = "VALID"
-    else:
-      sb.state = "ERROR"
-    if fields[17] == 1:
-      sb.error_action = "CONTINUE"
-    elif fields[17] == 2:
-      sb.error_action = "RO"
-    else:
-      sb.error_action = "PANIC"
-    sb.rev_minor = fields[18]
-    sb.time_last_check = fields[19]
-    sb.time_between_check = fields[20]
-    if fields[21] == 0:
-      sb.creator_os = "LINUX"
-    elif fields[21] == 1:
-      sb.creator_os = "HURD"
-    elif fields[21] == 2:
-      sb.creator_os = "MASIX"
-    elif fields[21] == 3:
-      sb.creator_os = "FREEBSD"
-    elif fields[21] == 4:
-      sb.creator_os = "LITES"
-    else:
-      sb.creator_os = "UNDEFINED"
-    sb.rev_level = fields[22]
-    sb.def_uid_res = fields[23]
-    sb.def_gid_res = fields[24]
-    
-    # read additional fields
-    fields = unpack_from("<I2H3I16s16s64sI2B2x16s3I4IB3x2I", sbBytes, 84)
-    sb.first_inode_index = fields[0]
-    sb.inode_size = fields[1]
-    sb._superblock_group_nr = fields[2]
-    sb.compat_feature_bitmask = fields[3]
-    sb.incompat_feature_bitmask = fields[4]
-    sb.rocompat_feature_bitmask = fields[5]
-    sb.vol_id = fields[6].rstrip('\0')
-    sb.vol_name = fields[7].rstrip('\0')
-    sb.last_mount_path = fields[8].rstrip('\0')
-    if fields[9] == 1:
-      sb.compression_algo = "LZV1"
-    elif fields[9] == 2:
-      sb.compression_algo = "LZRW3A"
-    elif fields[9] == 4:
-      sb.compression_algo = "GZIP"
-    elif fields[9] == 8:
-      sb.compression_algo = "BZIP2"
-    elif fields[9] == 16:
-      sb.compression_algo = "LZO"
-    else:
-      sb.compression_algo = "UNDEFINED"
-    sb.num_prealloc_blocks_file = fields[10]
-    sb.num_prealloc_blocks_dir = fields[11]
-    sb.journal_superblock_uuid = fields[12].rstrip('\0')
-    sb.journal_file_inode_num = fields[13]
-    sb.journal_file_dev = fields[14]
-    sb.last_orphan_inode_num = fields[15]
-    sb.hash_seeds = []
-    sb.hash_seeds.append(fields[16])
-    sb.hash_seeds.append(fields[17])
-    sb.hash_seeds.append(fields[18])
-    sb.hash_seeds.append(fields[19])
-    sb.def_hash_ver = fields[20]
-    sb.def_mount_options = fields[21]
-    sb.first_meta_bgroup_id = fields[22]
-    
-    if sb.num_blocks_per_group > 0:
-      sb.num_block_groups = int(ceil(sb.num_blocks / sb.num_blocks_per_group))
-    else:
-      sb.num_block_groups = 0
-    
-    if sb.rev_level == 0:
-      sb.copy_block_group_ids = range(sb.num_block_groups)
-    else:
-      sb.copy_block_group_ids = []
-      sb.copy_block_group_ids.append(0)
-      if sb.num_block_groups > 1:
-        sb.copy_block_group_ids.append(1)
-        last3 = 3
-        while last3 < sb.num_block_groups:
-          sb.copy_block_group_ids.append(last3)
-          last3 *= 3
-        last7 = 7
-        while last7 < sb.num_block_groups:
-          sb.copy_block_group_ids.append(last7)
-          last7 *= 7
-        sb.copy_block_group_ids.sort()
-    
-    return sb
   
-  
-  def __readBGroupDescriptorTable(self, superblock):
-    """Reads the block group descriptor table following the specified superblock."""
-    groupStart = superblock._superblock_group_nr * superblock.num_blocks_per_group * superblock.block_size
-    startPos = groupStart + (superblock.block_size * (superblock.first_block_id + 1))
-    tableSize = superblock.num_block_groups * 32
+  def __readBGroupDescriptorTable(self, groupId):
+    """Reads the block group descriptor table at the specified group number."""
+    
+    groupStart = groupId * self._superblock.numBlocksPerGroup * self._superblock.blockSize
+    startPos = groupStart + (self._superblock.blockSize * (self._superblock.firstDataBlockId + 1))
+    tableSize = self._superblock.numBlockGroups * 32
 
     self._imageFile.seek(startPos)
     bgdtBytes = self._imageFile.read(tableSize)
@@ -510,7 +386,7 @@ class Ext2Disk(object):
     bgdt = self.__BGroupDescriptorTable()
     bgdt.entries = []
     
-    for i in range(superblock.num_block_groups):
+    for i in range(self._superblock.numBlockGroups):
       fields = unpack_from("<3I3H", bgdtBytes, i*32)
       entry = self.__BGroupDescriptorEntry()
       entry.bid_block_bitmap = fields[0]
@@ -530,8 +406,8 @@ class Ext2Disk(object):
     used = []
     bitmaps = []
     for bgroupDescEntry in self._bgroupDescTable.entries:
-      bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
-      bitmapSize = self._superblock.num_inodes_per_group / 8
+      bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.blockSize
+      bitmapSize = self._superblock.numInodesPerGroup / 8
       self._imageFile.seek(bitmapStartPos)
       bitmapBytes = self._imageFile.read(bitmapSize)
       if len(bitmapBytes) < bitmapSize:
@@ -543,8 +419,8 @@ class Ext2Disk(object):
         if byte != 0:
           for i in range(8):
             if (1 << i) & byte != 0:
-              inum = (groupNum * self._superblock.num_inodes_per_group) + (byteIndex * 8) + i + 1
-              if inum >= self._superblock.first_inode_index:
+              inum = (groupNum * self._superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
+              if inum >= self._superblock.firstInode:
                 used.append(inum)
     
     return used
@@ -553,33 +429,33 @@ class Ext2Disk(object):
   
   
   def _readInode(self, inodeNum):
-    """Reads the specified inode. Ignores fragments, generation, and ACL data."""
-    bgroupNum = (inodeNum - 1) / self._superblock.num_inodes_per_group
-    bgroupIndex = (inodeNum - 1) % self._superblock.num_inodes_per_group
+    """Reads the specified inode."""
+    bgroupNum = (inodeNum - 1) / self._superblock.numInodesPerGroup
+    bgroupIndex = (inodeNum - 1) % self._superblock.numInodesPerGroup
     bgroupDescEntry = self._bgroupDescTable.entries[bgroupNum]
     
-    bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
+    bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.blockSize
     bitmapByteIndex = bgroupIndex / 8
     usedTest = 1 << (bgroupIndex % 8)
     
-    tableStartPos = bgroupDescEntry.bid_inode_table * self._superblock.block_size
-    inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inode_size)
+    tableStartPos = bgroupDescEntry.bid_inode_table * self._superblock.blockSize
+    inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inodeSize)
 
     self._imageFile.seek(bitmapStartPos + bitmapByteIndex)
     bitmapByte = unpack("B", self._imageFile.read(1))[0]
     self._imageFile.seek(inodeStartPos)
-    inodeBytes = self._imageFile.read(self._superblock.inode_size)
-    if len(inodeBytes) < self._superblock.inode_size:
+    inodeBytes = self._imageFile.read(self._superblock.inodeSize)
+    if len(inodeBytes) < self._superblock.inodeSize:
       raise Exception("Invalid inode.")
     
-    if self._superblock.rev_level == 0:
+    if self._superblock.revisionMajor == 0:
       fields = unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
     else:
       fields = unpack_from("<2H5IHh4xI4x15I8xI", inodeBytes)
     
-    if self._superblock.creator_os == "LINUX":
+    if self._superblock.creatorOS == "LINUX":
       osFields = unpack_from("<4x2H", inodeBytes, 116)
-    elif self._superblock.creator_os == "HURD":
+    elif self._superblock.creatorOS == "HURD":
       osFields = unpack_from("<2x3H", inodeBytes, 116)
     
     inode = self.__Inode()
@@ -598,12 +474,12 @@ class Ext2Disk(object):
     inode.blocks = []
     for i in range(15):
       inode.blocks.append(fields[10+i])
-    if self._superblock.rev_level > 0:
+    if self._superblock.revisionMajor > 0:
       inode.size |= (fields[25] << 32)
-    if self._superblock.creator_os == "LINUX":
+    if self._superblock.creatorOS == "LINUX":
       inode.uid |= (osFields[0] << 16)
       inode.gid |= (osFields[1] << 16)
-    elif self._superblock.creator_os == "HURD":
+    elif self._superblock.creatorOS == "HURD":
       inode.mode |= (osFields[0] << 16)
       inode.uid |= (osFields[1] << 16)
       inode.gid |= (osFields[2] << 16)
@@ -619,8 +495,8 @@ class Ext2Disk(object):
     used = []
     bitmaps = []
     for bgroupDescEntry in self._bgroupDescTable.entries:
-      bitmapStartPos = bgroupDescEntry.bid_block_bitmap * self._superblock.block_size
-      bitmapSize = self._superblock.num_blocks_per_group / 8
+      bitmapStartPos = bgroupDescEntry.bid_block_bitmap * self._superblock.blockSize
+      bitmapSize = self._superblock.numBlocksPerGroup / 8
       self._imageFile.seek(bitmapStartPos)
       bitmapBytes = self._imageFile.read(bitmapSize)
       if len(bitmapBytes) < bitmapSize:
@@ -632,7 +508,7 @@ class Ext2Disk(object):
         if byte != 0:
           for i in range(8):
             if (1 << i) & byte != 0:
-              bid = (groupNum * self._superblock.num_blocks_per_group) + (byteIndex * 8) + i + 1
+              bid = (groupNum * self._superblock.numBlocksPerGroup) + (byteIndex * 8) + i + 1
               used.append(bid)
     
     return used
@@ -643,9 +519,9 @@ class Ext2Disk(object):
   
   def _readBlock(self, blockId):
     """Reads the entire block specified by the given block id."""
-    self._imageFile.seek(blockId * self._superblock.block_size)
-    bytes = self._imageFile.read(self._superblock.block_size)
-    if len(bytes) < self._superblock.block_size:
+    self._imageFile.seek(blockId * self._superblock.blockSize)
+    bytes = self._imageFile.read(self._superblock.blockSize)
+    if len(bytes) < self._superblock.blockSize:
       raise Exception("Invalid block.")
     return bytes
   
@@ -656,11 +532,11 @@ class Ext2Disk(object):
     """Finds the first free inode, marks it as used, and returns the inode number."""
     bitmapStartPos = None
     bgroupNum = 0
-    bitmapSize = self._superblock.num_inodes_per_group / 8
+    bitmapSize = self._superblock.numInodesPerGroup / 8
     
     for bgroupNum, bgroupDescEntry in enumerate(self._bgroupDescTable.entries):
       if bgroupDescEntry.num_free_inodes > 0:
-        bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.block_size
+        bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.blockSize
         break
     if bitmapStartPos is None:
       raise Exception("No free inodes.")
@@ -675,7 +551,7 @@ class Ext2Disk(object):
       if byte != 255:
         for i in range(8):
           if (1 << i) & byte == 0:
-            inum = (bgroupNum * self._superblock.num_inodes_per_group) + (byteIndex * 8) + i + 1
+            inum = (bgroupNum * self._superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
             self._imageFile.seek(bitmapStartPos + byteIndex)
             self._imageFile.write(byte | (1 << i))
             # TODO mark as used, update bgdt, superblock
