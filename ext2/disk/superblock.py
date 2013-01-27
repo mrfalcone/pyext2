@@ -11,7 +11,7 @@ from math import ceil
 
 
 class _Superblock(object):
-  """Provides access to the filesystem's superblock. This class is for internal use only."""
+  """Provides access to the filesystem's superblock. For internal use only."""
   _saveCopies = True
 
 

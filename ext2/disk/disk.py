@@ -9,11 +9,12 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 import re
 import inspect
 from Queue import Queue
-from struct import pack, unpack, unpack_from
+from struct import unpack, unpack_from
 from os import fsync
 from ..error import *
 from ..file import Ext2File
 from .superblock import _Superblock
+from .bgdt import _BGDT
 
 
 class InformationReport(object):
@@ -24,10 +25,7 @@ class InformationReport(object):
 class Ext2Disk(object):
   """Models a disk image file formatted to the Ext2 filesystem."""
   
-  class __BGroupDescriptorTable:
-    pass
-  class __BGroupDescriptorEntry:
-    pass
+  
   class __Inode:
     pass
   
@@ -36,7 +34,7 @@ class Ext2Disk(object):
   
   @property
   def fsType(self):
-    """Gets a string representing the filesystem type. Always EXT2"""
+    """Gets a string representing the filesystem type. Always EXT2."""
     return "EXT2"
   
   @property
@@ -125,7 +123,7 @@ class Ext2Disk(object):
     self._imageFile = open(self._imageFilename, "r+b")
     try:
       self._superblock = _Superblock.read(1024, self._imageFile)
-      self._bgroupDescTable = self.__readBGroupDescriptorTable(0)
+      self._bgroupDescTable = _BGDT.read(0, self._superblock, self._imageFile)
       self._isValid = True
       self._rootDir = Ext2File("", None, 2, self)
     except:
@@ -261,8 +259,8 @@ class Ext2Disk(object):
     report.groupReports = []
     for i,entry in enumerate(self._bgroupDescTable.entries):
       groupReport = InformationReport()
-      groupReport.numFreeBlocks = entry.num_free_blocks
-      groupReport.numFreeInodes = entry.num_free_inodes
+      groupReport.numFreeBlocks = entry.numFreeBlocks
+      groupReport.numFreeInodes = entry.numFreeInodes
       report.groupReports.append(groupReport)
     
     return report
@@ -295,7 +293,7 @@ class Ext2Disk(object):
         startPos = 1024 + groupId * self._superblock.numBlocksPerGroup * self._superblock.blockSize
         sbCopy = _Superblock.read(startPos, self._imageFile)
         sbCopyMembers = dict(inspect.getmembers(sbCopy))
-      except Exception as e:
+      except:
         report.messages.append("Superblock at block group {0} could not be read.".format(groupId))
         continue
       for m in sbMembers:
@@ -308,7 +306,7 @@ class Ext2Disk(object):
       
       # evaluate block group descriptor table consistency
       try:
-        bgtCopy = self.__readBGroupDescriptorTable(groupId)
+        bgtCopy = _BGDT.read(groupId, self._superblock, self._imageFile)
         bgtCopyMembersEntries = map(dict, map(inspect.getmembers, bgtCopy.entries))
       except:
         report.messages.append("Block group descriptor table at block group {0} could not be read.".format(groupId))
@@ -370,43 +368,13 @@ class Ext2Disk(object):
   
   # PRIVATE METHODS ------------------------------------
   
-  
-  def __readBGroupDescriptorTable(self, groupId):
-    """Reads the block group descriptor table at the specified group number."""
-    
-    groupStart = groupId * self._superblock.numBlocksPerGroup * self._superblock.blockSize
-    startPos = groupStart + (self._superblock.blockSize * (self._superblock.firstDataBlockId + 1))
-    tableSize = self._superblock.numBlockGroups * 32
-
-    self._imageFile.seek(startPos)
-    bgdtBytes = self._imageFile.read(tableSize)
-    if len(bgdtBytes) < tableSize:
-      raise Exception("Invalid block group descriptor table.")
-    
-    bgdt = self.__BGroupDescriptorTable()
-    bgdt.entries = []
-    
-    for i in range(self._superblock.numBlockGroups):
-      fields = unpack_from("<3I3H", bgdtBytes, i*32)
-      entry = self.__BGroupDescriptorEntry()
-      entry.bid_block_bitmap = fields[0]
-      entry.bid_inode_bitmap = fields[1]
-      entry.bid_inode_table = fields[2]
-      entry.num_free_blocks = fields[3]
-      entry.num_free_inodes = fields[4]
-      entry.num_inodes_as_dirs = fields[5]
-      bgdt.entries.append(entry)
-    
-    return bgdt
-  
-  
   def __getUsedInodes(self):
     """Returns a list of all used inode numbers, excluding those reserved by the
     filesystem."""
     used = []
     bitmaps = []
     for bgroupDescEntry in self._bgroupDescTable.entries:
-      bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.blockSize
+      bitmapStartPos = bgroupDescEntry.inodeBitmapLocation * self._superblock.blockSize
       bitmapSize = self._superblock.numInodesPerGroup / 8
       self._imageFile.seek(bitmapStartPos)
       bitmapBytes = self._imageFile.read(bitmapSize)
@@ -434,11 +402,11 @@ class Ext2Disk(object):
     bgroupIndex = (inodeNum - 1) % self._superblock.numInodesPerGroup
     bgroupDescEntry = self._bgroupDescTable.entries[bgroupNum]
     
-    bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.blockSize
+    bitmapStartPos = bgroupDescEntry.inodeBitmapLocation * self._superblock.blockSize
     bitmapByteIndex = bgroupIndex / 8
     usedTest = 1 << (bgroupIndex % 8)
     
-    tableStartPos = bgroupDescEntry.bid_inode_table * self._superblock.blockSize
+    tableStartPos = bgroupDescEntry.inodeTableLocation * self._superblock.blockSize
     inodeStartPos = tableStartPos + (bgroupIndex * self._superblock.inodeSize)
 
     self._imageFile.seek(bitmapStartPos + bitmapByteIndex)
@@ -495,7 +463,7 @@ class Ext2Disk(object):
     used = []
     bitmaps = []
     for bgroupDescEntry in self._bgroupDescTable.entries:
-      bitmapStartPos = bgroupDescEntry.bid_block_bitmap * self._superblock.blockSize
+      bitmapStartPos = bgroupDescEntry.blockBitmapLocation * self._superblock.blockSize
       bitmapSize = self._superblock.numBlocksPerGroup / 8
       self._imageFile.seek(bitmapStartPos)
       bitmapBytes = self._imageFile.read(bitmapSize)
@@ -536,7 +504,7 @@ class Ext2Disk(object):
     
     for bgroupNum, bgroupDescEntry in enumerate(self._bgroupDescTable.entries):
       if bgroupDescEntry.num_free_inodes > 0:
-        bitmapStartPos = bgroupDescEntry.bid_inode_bitmap * self._superblock.blockSize
+        bitmapStartPos = bgroupDescEntry.inodeBitmapLocation * self._superblock.blockSize
         break
     if bitmapStartPos is None:
       raise Exception("No free inodes.")

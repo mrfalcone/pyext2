@@ -17,8 +17,8 @@ class Ext2File(object):
 
   @property
   def fsType(self):
-    """Gets a string representing the filesystem type. Always EXT2"""
-    return "EXT2"
+    """Gets a string representing the filesystem type."""
+    return self._disk.fsType
 
   @property
   def name(self):
