@@ -6,13 +6,12 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
-import re
 import inspect
 from Queue import Queue
 from struct import unpack
 from os import fsync
 from ..error import *
-from ..file import Ext2File
+from ..file.directory import _openRootDirectory
 from .superblock import _Superblock
 from .bgdt import _BGDT
 from .inode import _Inode
@@ -122,7 +121,7 @@ class Ext2Disk(object):
       self._superblock = _Superblock.read(1024, self._imageFile)
       self._bgdt = _BGDT.read(0, self._superblock, self._imageFile)
       self._isValid = True
-      self._rootDir = Ext2File("", None, 2, self)
+      self._rootDir = _openRootDirectory(self)
     except:
       if self._imageFile:
         self._imageFile.close()
@@ -147,95 +146,6 @@ class Ext2Disk(object):
   
   
   # PUBLIC METHODS ------------------------------------
-  
-  
-  def getFile(self, absolutePath):
-    """Looks up and returns the file specified by the absolute path. Raises a
-    FileNotFoundError if the file object cannot be found."""
-    assert self.isValid, "Filesystem is not valid."
-    
-    pathParts = re.compile("/+").split(absolutePath)
-    if len(pathParts) == 0:
-      raise FileNotFoundError()
-    if not pathParts[0] == "":
-      raise FileNotFoundError()
-    
-    if len(pathParts) > 1 and pathParts[-1] == "":
-      del pathParts[-1]
-    localName = pathParts[-1]
-    fileObject = self._rootDir
-    del pathParts[0]
-    for localPath in pathParts:
-      if not fileObject.isDir:
-        break
-      for f in fileObject.listContents():
-        if f.name == localPath:
-          fileObject = f
-          break
-    
-    if not fileObject.name == localName:
-      raise FileNotFoundError()
-    
-    return fileObject
-  
-  
-  
-  def makeDirFile(self, absolutePath):
-    """Creates a new directory on the filesystem and returns its file object."""
-    assert self.isValid, "Filesystem is not valid."
-    
-    # make sure destination does not already exist
-    destExists = True
-    try:
-      self.getFile(absolutePath)
-    except FileNotFoundError:
-      destExists = False
-    if destExists:
-      raise FileAlreadyExistsError()
-    
-    # find parent directory and add an entry for the file
-    pathParts = re.compile("/+").split(absolutePath)
-    if len(pathParts) == 0:
-      raise FileNotFoundError()
-    if not pathParts[0] == "":
-      raise FileNotFoundError()
-    if len(pathParts) > 1 and pathParts[-1] == "":
-      del pathParts[-1]
-    
-    fileName = pathParts[-1]
-    parentPath = "/{0}".format("/".join(pathParts[:-1]))
-    parentDir = self.getFile(parentPath)
-    
-    
-    mode = 0
-    mode |= 0x4000 # set directory
-    mode |= 0x0100 # user read
-    mode |= 0x0080 # user write
-    mode |= 0x0040 # user execute
-    mode |= 0x0020 # group read
-    mode |= 0x0008 # group execute
-    mode |= 0x0004 # others read
-    mode |= 0x0001 # others execute
-    inode = self._allocateInode(mode, 1000, 1000)
-    # TODO use inode
-    
-    print inspect.getmembers(inode)
-  
-  
-  
-  def makeRegularFile(self, absolutePath):
-    """Creates a new regular file on the filesystem and returns its file object."""
-    assert self.isValid, "Filesystem is not valid."
-    pass
-  
-  
-  
-  def makeLink(self, absolutePath, linkedFile, isSymbolic):
-    """Creates a new link to the specified file object and returns the link file object."""
-    assert self.isValid, "Filesystem is not valid."
-    pass
-  
-  
   
   def scanBlockGroups(self):
     """Scans all block groups and returns an information report about them."""

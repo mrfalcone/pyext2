@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Defines the file object used by the ext2 module.
+Defines the base file class used by the ext2 module.
 """
 __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
@@ -9,7 +9,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 from time import localtime, strftime
 from struct import unpack_from
 from math import ceil
-from .error import *
+from ..error import *
 
 
 class Ext2File(object):
@@ -44,22 +44,22 @@ class Ext2File(object):
   @property
   def isDir(self):
     """Gets whether the file object is a directory."""
-    return (self._inode.mode & 0x4000) != 0
+    return False
 
   @property
   def isRegular(self):
     """Gets whether the file object is a regular file."""
-    return (self._inode.mode & 0x8000) != 0
+    return False
 
   @property
   def isSymlink(self):
     """Gets whether the file object is a symbolic link."""
-    return (self._inode.mode & 0xA000) != 0
+    return False
 
   @property
   def modeStr(self):
     """Gets a string representing the file object's mode."""
-    return "".join(self._mode)
+    return "".join(self._modeStr)
 
   @property
   def numLinks(self):
@@ -105,64 +105,66 @@ class Ext2File(object):
 
   @property
   def parentDir(self):
-    """Gets this file object's parent directory. The root directory returns itself."""
+    """Gets this file object's parent directory. The root directory's parent is itself."""
     return self._parentDir
 
 
-  def __init__(self, name, parentDir, inodeNum, disk):
-    """Constructs a new file object from the specified inode number on the
-    specified disk."""
-    self._name = name
-    self._inode = disk._readInode(inodeNum)
+  def __init__(self, dirEntry, inode, disk):
+    """Constructs a new file object from the specified entry and inode."""
     self._disk = disk
+    self._inode = inode
     self._numBlocks = int(ceil(float(self._inode.size) / self._disk.blockSize))
-    self.resetFilePointer()
+    self._dirEntry = dirEntry
+    self._name = ""
+    
+    if self._dirEntry:
+      self._name = self._dirEntry.name
+      
+    
+    # resolve current/up directories
+    if self._dirEntry:
+      if self._name == ".":
+        self._dirEntry = dirEntry.parentDir._dirEntry
+      elif self._name == "..":
+        self._dirEntry = dirEntry.parentDir.parentDir._dirEntry
 
-    if parentDir is None:
-      self._parentDir = self
-    elif self._name == "..":
-      self._parentDir = parentDir.parentDir
+    # determine absolute path to file
+    if self._dirEntry:
+      self._parentDir = self._dirEntry.parentDir
+      if self._parentDir.absolutePath == "/":
+        parentPath = ""
+      else:
+        parentPath = self._parentDir.absolutePath
+      self._path = "{0}/{1}".format(parentPath, self._dirEntry.name)
     else:
-      self._parentDir = parentDir
+      self._parentDir = self
+      self._path = "/"
+    
     if not self._parentDir.isDir:
       raise Exception("Invalid parent directory.")
+    
 
-
-    absPath = []
-    if not (self._name == "." or self._name == ".."):
-      absPath.append(self._name)
-    upParent = self._parentDir
-    while not upParent.name == "":
-      if upParent.name == ".":
-        upParent = upParent.parentDir
-      elif upParent.name == "..":
-        upParent = upParent.parentDir.parentDir
-      else:
-        absPath.insert(0, upParent.name)
-        upParent = upParent.parentDir
-    self._path = "/{0}".format("/".join(absPath))
-
-    self._mode = list("----------")
+    self._modeStr = list("----------")
     if self.isDir:
-      self._mode[0] = "d"
+      self._modeStr[0] = "d"
     if (self._inode.mode & 0x0100) != 0:
-      self._mode[1] = "r"
+      self._modeStr[1] = "r"
     if (self._inode.mode & 0x0080) != 0:
-      self._mode[2] = "w"
+      self._modeStr[2] = "w"
     if (self._inode.mode & 0x0040) != 0:
-      self._mode[3] = "x"
+      self._modeStr[3] = "x"
     if (self._inode.mode & 0x0020) != 0:
-      self._mode[4] = "r"
+      self._modeStr[4] = "r"
     if (self._inode.mode & 0x0010) != 0:
-      self._mode[5] = "w"
+      self._modeStr[5] = "w"
     if (self._inode.mode & 0x0008) != 0:
-      self._mode[6] = "x"
+      self._modeStr[6] = "x"
     if (self._inode.mode & 0x0004) != 0:
-      self._mode[7] = "r"
+      self._modeStr[7] = "r"
     if (self._inode.mode & 0x0002) != 0:
-      self._mode[8] = "w"
+      self._modeStr[8] = "w"
     if (self._inode.mode & 0x0001) != 0:
-      self._mode[9] = "x"
+      self._modeStr[9] = "x"
 
     self._numIdsPerBlock = self._disk.blockSize / 4
     self._numDirectBlocks = 12
@@ -178,52 +180,37 @@ class Ext2File(object):
       self.timeAccessed, self.timeModified, self.name)
 
 
-  def listContents(self):
-    """Gets directory contents if this file object is a directory."""
-    if not self.isDir:
-      raise InvalidFileTypeError()
 
-    contents = []
-    for i in range(self.numBlocks):
-      blockId = self.__lookupBlockId(i)
-      if blockId == 0:
-        break
-      blockBytes = self._disk._readBlock(blockId)
-
-      offset = 0
-      while offset < self._disk.blockSize:
-        fields = unpack_from("<IHB", blockBytes, offset)
-        if fields[0] == 0:
-          break
-        name = unpack_from("<{0}s".format(fields[2]), blockBytes, offset + 8)[0]
-        contents.append(Ext2File(name, self, fields[0], self._disk))
-        offset += fields[1]
-
-    return contents
+  def files(self):
+    """Generates a list of files in the directory."""
+    raise InvalidFileTypeError()
 
 
-  def resetFilePointer(self):
-    """Resets the file pointer used for reading and writing bytes from/to the file."""
-    self._filePointer = 0
+  def getFileAt(self, relativePath):
+    """Looks up and returns the file specified by the relative path from this directory. Raises a
+    FileNotFoundError if the file object cannot be found."""
+    raise InvalidFileTypeError()
 
 
-  def read(self):
-    """If the file object is a regular file, reads the next chunk of bytes as
-    a byte array and updates the file pointer. Returns an empty array if
-    the file pointer is at the end of the file."""
-    if not self.isRegular:
-      raise InvalidFileTypeError()
-    if self._filePointer >= self.size:
-      return []
+  def makeDirectory(self, absolutePath):
+    """Creates a new directory in this directory and returns the new file object."""
+    raise InvalidFileTypeError()
 
-    chunkBlockId = self.__lookupBlockId(self._filePointer / self._disk.blockSize)
 
-    chunk = self._disk._readBlock(chunkBlockId)[(self._filePointer % self._disk.blockSize):]
-    self._filePointer += len(chunk)
-    if self._filePointer > self.size:
-      chunk = chunk[:(self.size % self._disk.blockSize)]
+  def makeRegularFile(self, absolutePath):
+    """Creates a new regular file in this directory and returns the new file object."""
+    raise InvalidFileTypeError()
 
-    return chunk
+
+  def makeLink(self, absolutePath, linkedFile, isSymbolic):
+    """Creates a new link in this directory to the given file object and returns the new file object."""
+    raise InvalidFileTypeError()
+  
+  
+  def blocks(self):
+    """Generates a list of block data in the file."""
+    raise InvalidFileTypeError()
+  
 
 
   def _getUsedBlocks(self):
@@ -276,12 +263,9 @@ class Ext2File(object):
     return blocks
 
 
-  def __getBidListAtBid(self, bid):
-    bytes = self._disk._readBlock(bid)
-    return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
+  
 
-
-  def __lookupBlockId(self, index):
+  def _lookupBlockId(self, index):
     """Looks up the block id corresponding to the block at the specified index,
     where the block index is the absolute block number within the file."""
     if index >= self.numBlocks:
@@ -309,4 +293,11 @@ class Ext2File(object):
       return directList[index % self._numIdsPerBlock]
 
     raise Exception("Block not found.")
+
+
+
+  def __getBidListAtBid(self, bid):
+    """Reads and returns the list of block ids at the specified block id on disk."""
+    bytes = self._disk._readBlock(bid)
+    return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
 

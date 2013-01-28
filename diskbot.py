@@ -9,6 +9,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 import sys
 import os
 from time import clock
+from time import sleep
 from threading import Thread
 from Queue import Queue
 from ext2 import *
@@ -29,27 +30,30 @@ class WaitIndicatorThread(Thread):
   def __init__(self, msg):
     Thread.__init__(self)
     self._msg = msg
-    self._pos = 0
   
   def run(self):
     """Prints and updates the wait indicator until done becomes True."""
+    lastProgress = None
+    indpos = 0
+    ind = ["-", "\\", "|", "/"]
     while not self.done:
-      sys.stdout.write(self._msg)
-      sys.stdout.write(" ")
       if self.maxProgress == 0:
-        if self._pos == 0:
-          sys.stdout.write("-")
-        elif self._pos == 1:
-          sys.stdout.write("\\")
-        elif self._pos == 2:
-          sys.stdout.write("|")
-        else:
-          sys.stdout.write("/")
+        sys.stdout.write("\r")
+        sys.stdout.write(self._msg)
+        sys.stdout.write(" ")
+        sys.stdout.write(ind[indpos])
+        sys.stdout.flush()
+        indpos = (indpos + 1) % 4
       else:
-        sys.stdout.write("{0:.0f}%".format(float(self.progress) / self.maxProgress * 100))
-      sys.stdout.flush()
-      sys.stdout.write("\r")
-      self._pos = (self._pos + 1) % 3
+        if self.progress != lastProgress:
+          sys.stdout.write("\r")
+          sys.stdout.write(self._msg)
+          sys.stdout.write(" ")
+          sys.stdout.write("{0:.0f}%".format(float(self.progress) / self.maxProgress * 100))
+          sys.stdout.flush()
+          lastProgress = self.progress
+      sleep(0.01)
+    sys.stdout.write("\r")
     sys.stdout.write(self._msg)
     sys.stdout.write(" Done.")
     sys.stdout.flush()
@@ -203,8 +207,8 @@ def printDirectory(directory, recursive = False, showAll = False, verbose = Fals
     dir = q.get()
     if recursive:
       print "{0}:".format(dir.absolutePath)
-    for f in dir.listContents():
-      if not showAll and f.name[0] == ".":
+    for f in dir.files():
+      if not showAll and f.name.startswith("."):
         continue
       
       inode = "{0}".format(f.inodeNum).rjust(7)
@@ -253,16 +257,18 @@ def shell(disk):
         print "No path specified."
       else:
         path = " ".join(args)
-        if not path.startswith("/"):
-          path = "{0}/{1}".format(wd.absolutePath, path)
         try:
-          f = disk.getFile(path)
-          if f.isDir:
-            wd = f
+          if path.startswith("/"):
+            cdDir = disk.rootDir.getFileAt(path[1:])
           else:
-            print "Not a directory."
+            cdDir = wd.getFileAt(path)
+          if not cdDir.isDir:
+            raise Exception("Not a directory.")
+          wd = cdDir
         except FileNotFoundError:
           print "The specified directory does not exist."
+        except Exception as e:
+          print "Error! {0}".format(e)
     else:
       print "Command not recognized."
 
