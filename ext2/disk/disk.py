@@ -161,7 +161,7 @@ class Ext2Disk(object):
     q.put(self.rootDir)
     while not q.empty():
       dir = q.get()
-      for f in dir.listContents():
+      for f in dir.files():
         if f.name == "." or f.name == "..":
           continue
         if f.isDir:
@@ -253,7 +253,7 @@ class Ext2Disk(object):
     q.put(self.rootDir)
     while not q.empty():
       dir = q.get()
-      for f in dir.listContents():
+      for f in dir.files():
         if f.name == "." or f.name == "..":
           continue
         if f.isDir:

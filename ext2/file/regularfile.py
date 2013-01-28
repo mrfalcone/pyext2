@@ -23,21 +23,13 @@ class Ext2RegularFile(Ext2File):
     assert (self._inode.mode & 0x8000) != 0, "Inode does not point to a regular file."
 
 
-#  def read(self):
-#    """If the file object is a regular file, reads the next chunk of bytes as
-#    a byte array and updates the file pointer. Returns an empty array if
-#    the file pointer is at the end of the file."""
-#
-#    raise InvalidFileTypeError()
-#
-#    if self._filePointer >= self.size:
-#      return []
-#
-#    chunkBlockId = self.__lookupBlockId(self._filePointer / self._disk.blockSize)
-#
-#    chunk = self._disk._readBlock(chunkBlockId)[(self._filePointer % self._disk.blockSize):]
-#    self._filePointer += len(chunk)
-#    if self._filePointer > self.size:
-#      chunk = chunk[:(self.size % self._disk.blockSize)]
-#
-#    return chunk
+  def blocks(self):
+    """Generates the next block in the file."""
+    for i in range(self.numBlocks):
+      blockId = self._lookupBlockId(i)
+      if blockId == 0:
+        break
+      block = self._disk._readBlock(blockId)
+      if (i+1) * self._disk.blockSize > self.size:
+        block = block[:(self.size % self._disk.blockSize)]
+      yield block

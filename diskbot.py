@@ -52,7 +52,7 @@ class WaitIndicatorThread(Thread):
           sys.stdout.write("{0:.0f}%".format(float(self.progress) / self.maxProgress * 100))
           sys.stdout.flush()
           lastProgress = self.progress
-      sleep(0.01)
+      sleep(0.03)
     sys.stdout.write("\r")
     sys.stdout.write(self._msg)
     sys.stdout.write(" Done.")
@@ -287,9 +287,9 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   
   filesToFetch = []
   if srcFilename.endswith("/*"):
-    directory = disk.getFile(srcFilename[:-1])
+    directory = disk.rootDir.getFileAt(srcFilename[:-1])
     destDirectory = "{0}/{1}".format(destDirectory, directory.name)
-    for f in directory.listContents():
+    for f in directory.files():
       if f.isRegular:
         filesToFetch.append(f.absolutePath)
   else:
@@ -304,7 +304,7 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
     
   for srcFilename in filesToFetch:
     try:
-      srcFile = disk.getFile(srcFilename)
+      srcFile = disk.rootDir.getFileAt(srcFilename)
     except FileNotFoundError:
       raise Exception("The source file cannot be found on the filesystem image.")
     
@@ -319,13 +319,11 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
     def __read(wait = None):
       readCount = 0
       with outFile:
-        byteBuffer = srcFile.read()
-        while len(byteBuffer) > 0:
-          outFile.write(byteBuffer)
-          readCount += len(byteBuffer)
+        for block in srcFile.blocks():
+          outFile.write(block)
+          readCount += len(block)
           if wait:
-            wait.progress += len(byteBuffer)
-          byteBuffer = srcFile.read()
+            wait.progress += len(block)
       return readCount
     
     if showWaitIndicator:
@@ -358,7 +356,7 @@ def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   destFilename = "{0}/{1}".format(destDirectory, srcFilename[srcFilename.rfind("/")+1:])
   
   try:
-    directory = disk.getFile(destDirectory)
+    directory = disk.rootDir.getFileAt(destDirectory)
   except FileNotFoundError:
     raise Exception("Destination directory does not exist.")
   
@@ -367,9 +365,9 @@ def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   except FileAlreadyExistsError:
     raise Exception("That file already exists in the specified directory.")
   
-  print "Pushing {0} to {1}".format(srcFilename, destDirectory)
+  # print "Pushing {0} to {1}".format(srcFilename, destDirectory)
   # TODO create new file, read source, write bytes to file
-  disk.makeDirFile("/lost+found/files")
+  raise Exception("Not implemented.")
   
 
 
