@@ -191,6 +191,9 @@ def printShellHelp():
   print "{0}{1}".format("cd directory".ljust(sp), "Changes to the specified directory. Treats everything")
   print "{0}{1}".format("".ljust(sp), "following the command as a directory name.")
   print
+  print "{0}{1}".format("mkdir name".ljust(sp), "Makes a new directory with the specified name. Treats")
+  print "{0}{1}".format("".ljust(sp), "everything following the command as a directory name.")
+  print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
   print
@@ -269,6 +272,17 @@ def shell(disk):
           print "The specified directory does not exist."
         except Exception as e:
           print "Error! {0}".format(e)
+    elif cmd == "mkdir":
+      if len(args) == 0:
+        print "No directory name specified."
+      try:
+        path = " ".join(args)
+        if path.startswith("/"):
+          disk.rootDir.makeDirectory(path[1:])
+        else:
+          wd.makeDirectory(path)
+      except Exception as e:
+        print "Error! {0}".format(e)
     else:
       print "Command not recognized."
 
@@ -360,10 +374,7 @@ def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
   except FileNotFoundError:
     raise Exception("Destination directory does not exist.")
   
-  try:
-    pass
-  except FileAlreadyExistsError:
-    raise Exception("That file already exists in the specified directory.")
+  
   
   # print "Pushing {0} to {1}".format(srcFilename, destDirectory)
   # TODO create new file, read source, write bytes to file
@@ -482,8 +493,8 @@ def main():
       disk = Ext2Disk(filename)
       with disk:
         run(args, disk)
-    except InvalidImageFormatError:
-      print "Error! The specified disk image is not formatted properly."
+    except Exception as e:
+      print "Error! {0}".format(e)
       print
       quit()
 

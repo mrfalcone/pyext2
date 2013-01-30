@@ -8,7 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import inspect
 from Queue import Queue
-from struct import unpack
+from struct import pack, unpack
 from os import fsync
 from ..error import *
 from ..file.directory import _openRootDirectory
@@ -115,7 +115,7 @@ class Ext2Disk(object):
   
   def mount(self):
     """Mounts the Ext2 disk for reading and writing and reads the root directory. Raises an
-    InvalidImageFormatError if the root directory cannot be read."""
+    error if the root directory cannot be read."""
     self._imageFile = open(self._imageFilename, "r+b")
     try:
       self._superblock = _Superblock.read(1024, self._imageFile)
@@ -127,7 +127,7 @@ class Ext2Disk(object):
         self._imageFile.close()
       self._imageFile = None
       self._isValid = False
-      raise InvalidImageFormatError()
+      raise Exception("Root directory could not be read.")
   
   
   
@@ -266,7 +266,7 @@ class Ext2Disk(object):
           inodesReachable[f.inodeNum] = True
         
         # check block references
-        for bid in f._getUsedBlocks():
+        for bid in f._inode.getUsedBlocks():
           if not bid in blocksAccessedBy:
             report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
           elif blocksAccessedBy[bid]:
@@ -339,13 +339,67 @@ class Ext2Disk(object):
   
   
   def _readBlock(self, blockId):
-    """Reads the entire block specified by the given block id."""
+    """Reads the entire block specified by the given block id and returns a string of bytes."""
     self._imageFile.seek(blockId * self._superblock.blockSize)
     bytes = self._imageFile.read(self._superblock.blockSize)
     if len(bytes) < self._superblock.blockSize:
       raise Exception("Invalid block.")
     return bytes
+
+
+
+
+  def _allocateBlock(self, zeros = False):
+    """Allocates the first free block and returns its id."""
+    bitmapSize = self._superblock.numBlocksPerGroup / 8
+    bitmapStartPos = None
+    bgdtEntry = None
+    groupNum = 0
+    
+    for groupNum, bgdtEntry in enumerate(self._bgdt.entries):
+      if bgdtEntry.numFreeBlocks > 0:
+        bitmapStartPos = bgdtEntry.blockBitmapLocation * self._superblock.blockSize
+        break
+    if bitmapStartPos is None:
+      raise Exception("No free blocks.")
+
+    self._imageFile.seek(bitmapStartPos)
+    bitmapBytes = self._imageFile.read(bitmapSize)
+    if len(bitmapBytes) < bitmapSize:
+      raise Exception("Invalid block bitmap.")
+    bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
+
+    bid = 0
+    for byteIndex, byte in enumerate(bitmap):
+      if byte != 255:
+        for i in range(8):
+          if (1 << i) & byte == 0:
+            bid = (groupNum * self._superblock.numBlocksPerGroup) + (byteIndex * 8) + i + 1
+            self._imageFile.seek(bitmapStartPos + byteIndex)
+            #TODO self._imageFile.write(pack("B", byte | (1 << i)))
+            self._superblock.numFreeBlocks -= 1
+            bgdtEntry.numFreeBlocks -= 1
+            break
+        if bid != 0:
+          break
+    
+    if zeros:
+      self._imageFile.seek(bid * self._superblock.blockSize)
+      # TODO self._imageFile.write(pack("{0}B".format(self._superblock.blockSize), [0] * self._superblock.blockSize))
+
+    self._imageFile.flush()
+    
+    return bid
   
+  
+  
+  def _writeToBlock(self, bid, offset, byteString):
+    """Writes the specified byte string to the specified block id at the given offset within the block."""
+    assert offset + len(byteString) <= self._superblock.blockSize, "Byte array does not fit within block."
+    self._imageFile.seek(offset + bid * self._superblock.blockSize)
+    # TODO self._imageFile.write(byteString)
+    self._imageFile.flush()
+    
   
   
   def _readInode(self, inodeNum):

@@ -7,7 +7,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 import re
-from struct import unpack_from
+from struct import pack, unpack_from
 from ..error import *
 from .file import Ext2File
 from .symlink import Ext2Symlink
@@ -20,36 +20,99 @@ def _openRootDirectory(disk):
 
 
 
-
-class _DirectoryEntryList(object):
-  """Represents a directory listing on a block in the Ext2 filesystem."""
-  def __init__(self, blockBytes, parentDir):
-    self._entry = _DirectoryEntry(0, blockBytes, None, parentDir)
+class _EntryList(object):
+  """Represents a doubly-liked directory list in the Ext2 filesystem. For internal use only."""
+  
+  def __init__(self, containingDir):
+    """Constructs a new directory entry list for the specified directory."""
+    self._containingDir = containingDir
+    self._entries = []
+    offset = 0
+    prevEntry = None
+    for i in range(containingDir.numBlocks):
+      blockId = containingDir._inode.lookupBlockId(i)
+      if blockId == 0:
+        break
+      blockBytes = containingDir._disk._readBlock(blockId)
+      while offset < containingDir._disk.blockSize:
+        entry = _Entry(i, blockId, offset, prevEntry, blockBytes[offset:], containingDir)
+        if entry.inodeNum == 0:
+          break
+        prevEntry = entry
+        offset += entry.size
+        self._entries.append(entry)
+  
+  
+  
   def __iter__(self):
+    """Gets the iterator to this list."""
+    self._itIndex = 0
     return self
+  
+  
   def next(self):
     """Gets the next entry in the linked list."""
-    if self._entry:
-      if self._entry.inodeNumber == 0:
-        raise StopIteration
-      entry = self._entry
-      self._entry = self._entry.nextEntry
-      return entry
-    raise StopIteration
+    if self._itIndex == len(self._entries):
+      raise StopIteration
+    entry = self._entries[self._itIndex]
+    self._itIndex += 1
+    return entry
+  
+  
+  def append(self, name, inodeNum):
+    """Appends a new entry for the specified inode number at the end of the list, and returns
+    the entry object."""
+    
+    nameLength = len(name)
+    assert nameLength <= 255, "Name is too long."
+    assert nameLength > 0, "Name is too short."
+
+    lastEntry = self._entries[-1]
+
+    entrySize = nameLength + 11 # 7 bytes for record base, 4 bytes for alignment
+    entrySize -= entrySize % 4 # align to 4 bytes
+
+    # if new entry doesn't fit on current block, allocate a new one
+    if entrySize + lastEntry._offset + lastEntry._size < self._containingDir._disk.blockSize:
+      entryBlockIndex = lastEntry._bindex
+      entryBlockId = lastEntry._bid
+      entryOffset = lastEntry._offset + lastEntry._size
+    else:
+      entryBlockId = self._containingDir._disk._allocateBlock(True)
+      entryBlockIndex = self._containingDir._inode.assignNextBlockId(entryBlockId)
+      self._containingDir._inode.size += self._containingDir._disk.blockSize
+      entryOffset = 0
+    
+    byteString = pack("<IHB{0}s".format(nameLength), inodeNum, entrySize, nameLength, name)
+    self._containingDir._disk._writeToBlock(entryBlockId, entryOffset, byteString)
+    newEntry = _Entry(entryBlockIndex, entryBlockId, entryOffset, None, byteString, self._containingDir)
+    newEntry.prevEntry = lastEntry
+    lastEntry.nextEntry = newEntry
+    return newEntry
 
 
 
 
-class _DirectoryEntry(object):
-  """Represents a directory entry in a linked entry list on the Ext2 filesystem."""
+class _Entry(object):
+  """Represents a directory entry in a linked entry list on the Ext2 filesystem. For internal use only."""
 
+  @property
+  def size(self):
+    """Gets the size of this entry in bytes."""
+    return self._size
+
+  @property
+  def containingDir(self):
+    """Gets the directory object that contains this entry."""
+    return self._containingDir
+  
   @property
   def name(self):
     """Gets the name of the file represented by this entry."""
     return self._name
 
   @property
-  def inodeNumber(self):
+  def inodeNum(self):
     """Gets the inode number of the file represented by this entry."""
     return self._inodeNum
 
@@ -57,34 +120,50 @@ class _DirectoryEntry(object):
   def prevEntry(self):
     """Gets the previous entry in the list."""
     return self._prevEntry
+  @prevEntry.setter
+  def prevEntry(self, value):
+    """Sets the previous entry in the list."""
+    self._prevEntry = value
   
   @property
   def nextEntry(self):
     """Gets the next entry in the list."""
     return self._nextEntry
+  @nextEntry.setter
+  def nextEntry(self, value):
+    """Sets the next entry in the list."""
+    if not value is None:
+      if value._bindex == self._bindex:
+        newSize = value._offset - self._offset
+        assert newSize > 0, "Next entry not after previous entry."
+      else:
+        newSize = self._containingDir._disk.blockSize - self._offset + value._offset
+      self.__writeData(4, pack("<H", newSize))
+    self._nextEntry = value
 
-  @property
-  def parentDir(self):
-    """Gets the directory to which this entry belongs."""
-    return self._parentDir
   
-  def __init__(self, entryOffset, blockBytes, prevEntry, parentDir):
+  def __init__(self, blockIndex, blockId, blockOffset, prevEntry, byteString, containingDir):
     """Contructs a new entry in the linked list."""
-    self._parentDir = parentDir
-    self._prevEntry = prevEntry
-    self._blockBytes = blockBytes
-    self._entryOffset = entryOffset
-    fields = unpack_from("<IHB", blockBytes, entryOffset)
+    
+    fields = unpack_from("<IHB", byteString)
+    self._name = unpack_from("<{0}s".format(fields[2]), byteString, 8)[0]
     self._inodeNum = fields[0]
-    self._entrySize = fields[1]
-    self._name = unpack_from("<{0}s".format(fields[2]), blockBytes, entryOffset + 8)[0]
-    if self._inodeNum == 0:
-      self._nextEntry = None
-    elif self._entryOffset + self._entrySize + 7 > len(self._blockBytes):
-      self._nextEntry = None
-    else:
-      self._nextEntry = _DirectoryEntry(self._entryOffset + self._entrySize, self._blockBytes, self, self._parentDir)
+    self._size = fields[1]
+    self._bindex = blockIndex
+    self._bid = blockId
+    self._offset = blockOffset
+    self._containingDir = containingDir
+    self._nextEntry = None
+    self._prevEntry = prevEntry
+    if not (self._inodeNum == 0 or self._prevEntry is None):
+      self._prevEntry._nextEntry = self
+  
+  
+  def __writeData(self, offset, byteString):
+    """Writes the specified byte string to the offset within the entry."""
+    self._containingDir._disk._writeToBlock(self._bid, self._offset + offset, byteString)
 
+    
 
 
 
@@ -102,6 +181,7 @@ class Ext2Directory(Ext2File):
     """Constructs a new directory object from the specified directory entry."""
     super(Ext2Directory, self).__init__(dirEntry, inode, disk)
     assert (self._inode.mode & 0x4000) != 0, "Inode does not point to a directory."
+    self._entryList = _EntryList(self)
 
 
 
@@ -109,7 +189,7 @@ class Ext2Directory(Ext2File):
   def _openEntry(cls, dirEntry, disk):
     """Opens and returns the file object described by the specified directory entry."""
     if dirEntry:
-      inode = disk._readInode(dirEntry.inodeNumber)
+      inode = disk._readInode(dirEntry.inodeNum)
     else:
       inode = disk._readInode(2)
 
@@ -128,14 +208,14 @@ class Ext2Directory(Ext2File):
 
   def files(self):
     """Generates a list of files in the directory."""
-    for entry in self.__entries():
+    for entry in self._entryList:
       yield Ext2Directory._openEntry(entry, self._disk)
 
 
 
   def getFileAt(self, relativePath):
     """Looks up and returns the file specified by the relative path from this directory. Raises a
-    FileNotFoundError if the file object cannot be found."""
+    FileNotFoundError if the file cannot be found."""
     
     pathParts = re.compile("/+").split(relativePath)
     if len(pathParts) > 1 and pathParts[0] == "":
@@ -147,10 +227,11 @@ class Ext2Directory(Ext2File):
     
     curFile = self
     for curPart in pathParts:
-      for entry in curFile.__entries():
-        if entry.name == curPart:
-          curFile = Ext2Directory._openEntry(entry, self._disk)
-          break
+      if curFile.isDir:
+        for entry in curFile._entryList:
+          if entry.name == curPart:
+            curFile = Ext2Directory._openEntry(entry, self._disk)
+            break
     
     if pathParts[-1] != "" and pathParts[-1] != curFile.name:
       raise FileNotFoundError()
@@ -158,32 +239,14 @@ class Ext2Directory(Ext2File):
     return curFile
 
 
-  def makeDirectory(self, absolutePath):
+  def makeDirectory(self, name, uid = None, gid = None):
     """Creates a new directory in this directory and returns the new file object."""
-
-    # make sure destination does not already exist
-    destExists = True
-    try:
-      self.getFile(absolutePath)
-    except FileNotFoundError:
-      destExists = False
-    if destExists:
-      raise FileAlreadyExistsError()
-
-    # find parent directory and add an entry for the file
-    pathParts = re.compile("/+").split(absolutePath)
-    if len(pathParts) == 0:
-      raise FileNotFoundError()
-    if not pathParts[0] == "":
-      raise FileNotFoundError()
-    if len(pathParts) > 1 and pathParts[-1] == "":
-      del pathParts[-1]
-
-    fileName = pathParts[-1]
-    parentPath = "/{0}".format("/".join(pathParts[:-1]))
-    parentDir = self.getFile(parentPath)
-
-
+    
+    if uid is None:
+      uid = self.uid
+    if gid is None:
+      gid = self.gid
+    
     mode = 0
     mode |= 0x4000 # set directory
     mode |= 0x0100 # user read
@@ -193,19 +256,21 @@ class Ext2Directory(Ext2File):
     mode |= 0x0008 # group execute
     mode |= 0x0004 # others read
     mode |= 0x0001 # others execute
-    inode = self._allocateInode(mode, 1000, 1000)
-    # TODO use inode
-    print inode
+    
+    entry = self.__makeNewEntry(name, mode, uid, gid)
+    entry._append(".", entry.inodeNum)
+    entry._append("..", entry.containingDir.parentDir.inodeNum)
+    return Ext2Directory._openEntry(entry, self._disk)
 
 
 
-  def makeRegularFile(self, absolutePath):
+  def makeRegularFile(self, name):
     """Creates a new regular file in this directory and returns the new file object."""
     pass
 
 
 
-  def makeLink(self, absolutePath, linkedFile, isSymbolic):
+  def makeLink(self, name, linkedFile, isSymbolic):
     """Creates a new link in this directory to the given file object and returns the new file object."""
     pass
 
@@ -214,13 +279,27 @@ class Ext2Directory(Ext2File):
 
   # PRIVATE METHODS ------------------------------------------------
 
-  def __entries(self):
-    """Generates the next entry in the directory."""
-    for i in range(self.numBlocks):
-      blockId = self._lookupBlockId(i)
-      if blockId == 0:
-        break
-      for entry in _DirectoryEntryList(self._disk._readBlock(blockId), self):
-        yield entry
-  
+  def __makeNewEntry(self, name, mode, uid, gid):
+    """Creates a new entry with the given parameters and returns the new object."""
 
+    if name.find("/") >= 0:
+      parent = self.getFileAt(name[:name.rindex("/")])
+      return parent.__makeNewEntry(name[name.rindex("/")+1:], mode, uid, gid)
+    
+    if len(name.strip()) == 0:
+      raise Exception("No name specified.")
+
+    # make sure destination does not already exist
+    for entry in self._entryList:
+      if entry.name == name:
+        raise Exception("An entry with that name already exists.")
+    
+    inode = self._disk._allocateInode(mode, uid, gid)
+    bid = self._disk._allocateBlock(True)
+    inode.assignNextBlockId(bid)
+    inode.size += self._disk.blockSize
+    
+    entry = self._entryList.append(name, inode.number)
+    inode.numLinks += 1
+    
+    return entry

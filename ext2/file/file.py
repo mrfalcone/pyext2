@@ -7,7 +7,6 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 from time import localtime, strftime
-from struct import unpack_from
 from math import ceil
 from ..error import *
 
@@ -86,7 +85,7 @@ class Ext2File(object):
   @property
   def numBlocks(self):
     """Gets the number of data blocks used by the file on the filesystem."""
-    return self._numBlocks
+    return int(ceil(float(self._inode.size) / self._disk.blockSize))
 
   @property
   def timeCreated(self):
@@ -113,7 +112,6 @@ class Ext2File(object):
     """Constructs a new file object from the specified entry and inode."""
     self._disk = disk
     self._inode = inode
-    self._numBlocks = int(ceil(float(self._inode.size) / self._disk.blockSize))
     self._dirEntry = dirEntry
     self._name = ""
     
@@ -124,13 +122,13 @@ class Ext2File(object):
     # resolve current/up directories
     if self._dirEntry:
       if self._name == ".":
-        self._dirEntry = dirEntry.parentDir._dirEntry
+        self._dirEntry = dirEntry.containingDir._dirEntry
       elif self._name == "..":
-        self._dirEntry = dirEntry.parentDir.parentDir._dirEntry
+        self._dirEntry = dirEntry.containingDir.parentDir._dirEntry
 
     # determine absolute path to file
     if self._dirEntry:
-      self._parentDir = self._dirEntry.parentDir
+      self._parentDir = self._dirEntry.containingDir
       if self._parentDir.absolutePath == "/":
         parentPath = ""
       else:
@@ -165,12 +163,7 @@ class Ext2File(object):
       self._modeStr[8] = "w"
     if (self._inode.mode & 0x0001) != 0:
       self._modeStr[9] = "x"
-
-    self._numIdsPerBlock = self._disk.blockSize / 4
-    self._numDirectBlocks = 12
-    self._numIndirectBlocks = self._numDirectBlocks + self._numIdsPerBlock
-    self._numDoublyIndirectBlocks = self._numIndirectBlocks + self._numIdsPerBlock ** 2
-    self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
+    
 
 
   def __str__(self):
@@ -211,93 +204,3 @@ class Ext2File(object):
     """Generates a list of block data in the file."""
     raise InvalidFileTypeError()
   
-
-
-  def _getUsedBlocks(self):
-    """Returns a list of ALL block ids in use by the file object, including data
-    and indirect blocks."""
-    blocks = []
-    for bid in self._inode.blocks:
-      if bid != 0:
-        blocks.append(bid)
-      else:
-        break
-
-    # get indirect blocks
-    if self._inode.blocks[12] != 0:
-      for bid in self.__getBidListAtBid(self._inode.blocks[12]):
-        if bid != 0:
-          blocks.append(bid)
-        else:
-          return blocks
-
-    # get doubly indirect blocks
-    if self._inode.blocks[13] != 0:
-      for indirectBid in self.__getBidListAtBid(self._inode.blocks[13]):
-        if indirectBid != 0:
-          blocks.append(indirectBid)
-          for bid in self.__getBidListAtBid(indirectBid):
-            if bid != 0:
-              blocks.append(bid)
-            else:
-              return blocks
-        else:
-          return blocks
-
-    # get trebly indirect blocks
-    if self._inode.blocks[14] != 0:
-      for doublyIndirectBid in self.__getBidListAtBid(self._inode.blocks[14]):
-        if doublyIndirectBid != 0:
-          blocks.append(doublyIndirectBid)
-          for indirectBid in self.__getBidListAtBid(doublyIndirectBid):
-            if indirectBid != 0:
-              blocks.append(indirectBid)
-              for bid in self.__getBidListAtBid(indirectBid):
-                if bid != 0:
-                  blocks.append(bid)
-                else:
-                  return blocks
-        else:
-          return blocks
-
-    return blocks
-
-
-  
-
-  def _lookupBlockId(self, index):
-    """Looks up the block id corresponding to the block at the specified index,
-    where the block index is the absolute block number within the file."""
-    if index >= self.numBlocks:
-      raise Exception("Block index out of range.")
-
-    if index < self._numDirectBlocks:
-      return self._inode.blocks[index]
-
-    elif index < self._numIndirectBlocks:
-      directList = self.__getBidListAtBid(self._inode.blocks[12])
-      return directList[index - self._numDirectBlocks]
-
-    elif index < self._numDoublyIndirectBlocks:
-      indirectList = self.__getBidListAtBid(self._inode.blocks[13])
-      index -= self._numIndirectBlocks # get index from start of doubly indirect list
-      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
-      return directList[index % self._numIdsPerBlock]
-
-    elif index < self._numTreblyIndirectBlocks:
-      doublyIndirectList = self.__getBidListAtBid(self._inode.blocks[14])
-      index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
-      indirectList = self.__getBidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
-      index %= (self._numIdsPerBlock ** 2) # get index from start of indirect list
-      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
-      return directList[index % self._numIdsPerBlock]
-
-    raise Exception("Block not found.")
-
-
-
-  def __getBidListAtBid(self, bid):
-    """Reads and returns the list of block ids at the specified block id on disk."""
-    bytes = self._disk._readBlock(bid)
-    return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
-

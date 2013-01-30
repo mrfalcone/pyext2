@@ -29,7 +29,7 @@ class _Inode(object):
   @property
   def timeCreated(self):
     """Gets the time this inode was created."""
-    return self._time_created
+    return self._timeCreated
 
   @property
   def flags(self):
@@ -86,32 +86,32 @@ class _Inode(object):
   @property
   def timeAccessed(self):
     """Gets the time the inode was last accessed."""
-    return self._time_accessed
+    return self._timeAccessed
   @timeAccessed.setter
   def timeAccessed(self, value):
     """Sets the time the inode was last accessed."""
-    self._time_accessed = value
-    self.__writeData(8, pack("<I", self._time_accessed))
+    self._timeAccessed = value
+    self.__writeData(8, pack("<I", self._timeAccessed))
 
   @property
   def timeModified(self):
     """Gets the time the inode was last modified."""
-    return self._time_modified
+    return self._timeModified
   @timeModified.setter
   def timeModified(self, value):
     """Sets the time the inode was last modified."""
-    self._time_modified = value
-    self.__writeData(16, pack("<I", self._time_modified))
+    self._timeModified = value
+    self.__writeData(16, pack("<I", self._timeModified))
 
   @property
   def timeDeleted(self):
     """Gets the time the inode was deleted."""
-    return self._time_deleted
+    return self._timeDeleted
   @timeDeleted.setter
   def timeDeleted(self, value):
     """Sets the time the inode was deleted."""
-    self._time_deleted = value
-    self.__writeData(20, pack("<I", self._time_deleted))
+    self._timeDeleted = value
+    self.__writeData(20, pack("<I", self._timeDeleted))
 
   @property
   def gid(self):
@@ -128,12 +128,12 @@ class _Inode(object):
   @property
   def numLinks(self):
     """Gets the number of hard links to the inode."""
-    return self._num_links
+    return self._numLinks
   @numLinks.setter
   def numLinks(self, value):
     """Sets the number of hard links to the inode."""
-    self._num_links = value
-    self.__writeData(26, pack("<h", self._num_links))
+    self._numLinks = value
+    self.__writeData(26, pack("<h", self._numLinks))
 
 
 
@@ -187,8 +187,9 @@ class _Inode(object):
       osdBytes = pack("<2x3H", (mode >> 16), (uid >> 16), (gid >> 16))
     else:
       osdBytes = pack("<12x")
-      
-    inodeBytes = pack("<2Hi4IH90x12s", (mode & 0xFFFF), (uid & 0xFFFF), 0, 0, int(time()), 0, 0,
+    
+    curTime = int(time())
+    inodeBytes = pack("<2Hi4IH90x12s", (mode & 0xFFFF), (uid & 0xFFFF), 0, curTime, curTime, curTime, 0,
       (gid & 0xFFFF), osdBytes)
     
     # write new inode bytes to disk image
@@ -197,6 +198,7 @@ class _Inode(object):
     inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
     imageFile.seek(inodeStartPos)
     # TODO imageFile.write(inodeBytes)
+    imageFile.flush()
 
     return cls(inodeStartPos, inodeBytes, True, inodeNum, superblock, imageFile)
 
@@ -251,12 +253,12 @@ class _Inode(object):
     self._mode = fields[0]
     self._uid = fields[1]
     self._size = fields[2]
-    self._time_accessed = fields[3]
-    self._time_created = fields[4]
-    self._time_modified = fields[5]
-    self._time_deleted = fields[6]
+    self._timeAccessed = fields[3]
+    self._timeCreated = fields[4]
+    self._timeModified = fields[5]
+    self._timeDeleted = fields[6]
     self._gid = fields[7]
-    self._num_links = fields[8]
+    self._numLinks = fields[8]
     self._flags = fields[9]
     self._blocks = []
     for i in range(15):
@@ -270,10 +272,121 @@ class _Inode(object):
       self._mode |= (osFields[0] << 16)
       self._uid |= (osFields[1] << 16)
       self._gid |= (osFields[2] << 16)
+
+    self._numIdsPerBlock = self._superblock.blockSize / 4
+    self._numDirectBlocks = 12
+    self._numIndirectBlocks = self._numDirectBlocks + self._numIdsPerBlock
+    self._numDoublyIndirectBlocks = self._numIndirectBlocks + self._numIdsPerBlock ** 2
+    self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
+
+
+
+  def getUsedBlocks(self):
+    """Returns a list of ALL block ids in use by the inode, including data
+    and indirect blocks."""
+    blocks = []
+    for bid in self.blocks:
+      if bid != 0:
+        blocks.append(bid)
+      else:
+        break
+
+    # get indirect blocks
+    if self.blocks[12] != 0:
+      for bid in self.__getBidListAtBid(self.blocks[12]):
+        if bid != 0:
+          blocks.append(bid)
+        else:
+          return blocks
+
+    # get doubly indirect blocks
+    if self.blocks[13] != 0:
+      for indirectBid in self.__getBidListAtBid(self.blocks[13]):
+        if indirectBid != 0:
+          blocks.append(indirectBid)
+          for bid in self.__getBidListAtBid(indirectBid):
+            if bid != 0:
+              blocks.append(bid)
+            else:
+              return blocks
+        else:
+          return blocks
+
+    # get trebly indirect blocks
+    if self.blocks[14] != 0:
+      for doublyIndirectBid in self.__getBidListAtBid(self.blocks[14]):
+        if doublyIndirectBid != 0:
+          blocks.append(doublyIndirectBid)
+          for indirectBid in self.__getBidListAtBid(doublyIndirectBid):
+            if indirectBid != 0:
+              blocks.append(indirectBid)
+              for bid in self.__getBidListAtBid(indirectBid):
+                if bid != 0:
+                  blocks.append(bid)
+                else:
+                  return blocks
+        else:
+          return blocks
+
+    return blocks
+
+
+
+  def lookupBlockId(self, index):
+    """Looks up the block id corresponding to the block at the specified index,
+    where the block index is the absolute block number within the data."""
+
+    if index < self._numDirectBlocks:
+      return self.blocks[index]
+
+    elif index < self._numIndirectBlocks:
+      directList = self.__getBidListAtBid(self.blocks[12])
+      return directList[index - self._numDirectBlocks]
+
+    elif index < self._numDoublyIndirectBlocks:
+      indirectList = self.__getBidListAtBid(self.blocks[13])
+      index -= self._numIndirectBlocks # get index from start of doubly indirect list
+      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
+      return directList[index % self._numIdsPerBlock]
+
+    elif index < self._numTreblyIndirectBlocks:
+      doublyIndirectList = self.__getBidListAtBid(self.blocks[14])
+      index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
+      indirectList = self.__getBidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
+      index %= (self._numIdsPerBlock ** 2) # get index from start of indirect list
+      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
+      return directList[index % self._numIdsPerBlock]
+
+    raise Exception("Block not found.")
+  
+  
+
+  def assignNextBlockId(self, bid):
+    """Assigns the given block id to this inode as the next block in use. Returns the index of
+    the new block."""
+    for i in range(12):
+      if self._blocks[i] == 0:
+        self._blocks[i] = bid
+        self.__writeData(40+i, pack("<I", self._blocks[i]))
+        return i
+    
+    # TODO assign to indirect blocks
+    raise Exception("Not implemented.")
+
+
+
+
+  def __getBidListAtBid(self, bid):
+    """Reads and returns the list of block ids at the specified block id on disk."""
+    self._imageFile.seek(bid * self._superblock.blockSize)
+    bytes = self._imageFile.read(self._superblock.blockSize)
+    return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
+  
   
   
   def __writeData(self, offset, byteString):
     """Writes the specified string of bytes at the specified offset (from the start of the inode bytes)
     on the disk image."""
     self._imageFile.seek(self._inodeStartPos + offset)
-    # TODO imageFile.write(byteString)
+    # TODO self._imageFile.write(byteString)
+    self._imageFile.flush()

@@ -26,7 +26,7 @@ class Ext2RegularFile(Ext2File):
   def blocks(self):
     """Generates the next block in the file."""
     for i in range(self.numBlocks):
-      blockId = self._lookupBlockId(i)
+      blockId = self._inode.lookupBlockId(i)
       if blockId == 0:
         break
       block = self._disk._readBlock(blockId)

@@ -19,18 +19,18 @@ class _BGDTEntry(object):
   @property
   def blockBitmapLocation(self):
     """Gets the block id of the block bitmap for this block group."""
-    return self._bid_block_bitmap
+    return self._blockBitmapBid
 
 
   @property
   def inodeBitmapLocation(self):
     """Gets the block id of the inode bitmap for this block group."""
-    return self._bid_inode_bitmap
+    return self._inodeBitmapBid
 
   @property
   def inodeTableLocation(self):
     """Gets the block id of the inode table for this block group."""
-    return self._bid_inode_table
+    return self._inodeTableBid
 
 
   # WRITABLE PROPERTIES -------------------------------------
@@ -38,33 +38,33 @@ class _BGDTEntry(object):
   @property
   def numFreeBlocks(self):
     """Gets the number of free blocks."""
-    return self._num_free_blocks
+    return self._numFreeBlocks
   @numFreeBlocks.setter
   def numFreeBlocks(self, value):
     """Sets the number of free blocks."""
-    self._num_free_blocks = value
+    self._numFreeBlocks = value
     # TODO write to image
 
 
   @property
   def numFreeInodes(self):
     """Gets the number of free inodes."""
-    return self._num_free_inodes
+    return self._numFreeInodes
   @numFreeInodes.setter
   def numFreeInodes(self, value):
     """Sets the number of free inodes."""
-    self._num_free_inodes = value
+    self._numFreeInodes = value
     # TODO write to image
 
 
   @property
   def numInodesAsDirs(self):
     """Gets the number of inodes used as directories."""
-    return self._num_inodes_as_dirs
+    return self._numInodesAsDirs
   @numInodesAsDirs.setter
   def numInodesAsDirs(self, value):
     """Sets the number of inodes used as directories."""
-    self._num_inodes_as_dirs = value
+    self._numInodesAsDirs = value
     # TODO write to image
     
   
@@ -73,12 +73,12 @@ class _BGDTEntry(object):
     self._superblock = superblock
     self._imageFile = imageFile
     self._startPos = startPos
-    self._bid_block_bitmap = fields[0]
-    self._bid_inode_bitmap = fields[1]
-    self._bid_inode_table = fields[2]
-    self._num_free_blocks = fields[3]
-    self._num_free_inodes = fields[4]
-    self._num_inodes_as_dirs = fields[5]
+    self._blockBitmapBid = fields[0]
+    self._inodeBitmapBid = fields[1]
+    self._inodeTableBid = fields[2]
+    self._numFreeBlocks = fields[3]
+    self._numFreeInodes = fields[4]
+    self._numInodesAsDirs = fields[5]
 
 
 

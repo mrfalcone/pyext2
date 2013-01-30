@@ -20,207 +20,207 @@ class _Superblock(object):
   @property
   def numInodes(self):
     """Gets the total number of inodes."""
-    return self._num_inodes
+    return self._numInodes
 
   @property
   def numBlocks(self):
     """Gets the total number of blocks."""
-    return self._num_blocks
+    return self._numBlocks
 
   @property
   def numReservedBlocks(self):
     """Gets the number of system reserved blocks."""
-    return self._num_res_blocks
+    return self._numResBlocks
 
   @property
   def firstDataBlockId(self):
     """Gets the id of the first block of the filesystem."""
-    return self._first_block_id
+    return self._firstBlockId
 
   @property
   def blockSize(self):
     """Gets the size of the filesystem blocks in bytes."""
-    return self._block_size
+    return self._blockSize
 
   @property
   def fragmentSize(self):
     """Gets the size of the fragments in bytes."""
-    return self._frag_size
+    return self._fragSize
 
   @property
   def numBlocksPerGroup(self):
     """Gets the number of blocks per block group."""
-    return self._num_blocks_per_group
+    return self._numBlocksPerGroup
 
   @property
   def numFragmentsPerGroup(self):
     """Gets the number of fragments per block group."""
-    return self._num_frags_per_group
+    return self._numFragsPerGroup
 
   @property
   def numInodesPerGroup(self):
     """Gets the number of inodes per block group."""
-    return self._num_inodes_per_group
+    return self._numInodesPerGroup
 
   @property
   def numMountsMax(self):
     """Gets the maximum number of times the filesystem should be mounted before being checked."""
-    return self._num_mounts_max
+    return self._numMountsMax
 
   @property
   def magicNumber(self):
     """Gets the value of the magic number field."""
-    return self._magic_number
+    return self._magicNum
 
   @property
   def isValidExt2(self):
     """Gets whether the filesystem is Ext2 (if the magic number is 0xEF53)."""
-    return (self._magic_number == 0xEF53)
+    return (self._magicNum == 0xEF53)
 
   @property
   def errorAction(self):
     """Gets the action to take upon error."""
-    return self._error_action
+    return self._errorAction
 
   @property
   def revisionMinor(self):
     """Gets the minor revision level."""
-    return self._rev_minor
+    return self._revMinor
 
   @property
   def timeLastChecked(self):
     """Gets the time the filesystem was last checked."""
-    return self._time_last_check
+    return self._timeLastCheck
 
   @property
   def checkInterval(self):
     """Gets the maximum time that can pass before the filesystem should be checked, in ms."""
-    return self._time_between_check
+    return self._timeBetweenCheck
 
   @property
   def creatorOS(self):
     """Gets the name of the OS that created this filesystem."""
-    return self._creator_os
+    return self._creatorOs
 
   @property
   def revisionMajor(self):
     """Gets the major revision level."""
-    return self._rev_level
+    return self._revLevel
 
   @property
   def defaultReservedUID(self):
     """Gets the default UID allowed to use reserved blocks."""
-    return self._def_uid_res
+    return self._defResUid
 
   @property
   def defaultReservedGID(self):
     """Gets the default GID allowed to use reserved blocks."""
-    return self._def_gid_res
+    return self._defResGid
 
   @property
   def numBlockGroups(self):
     """Gets the number of block groups."""
-    return self._num_block_groups
+    return self._numBlockGroups
 
   @property
   def copyLocations(self):
     """Gets a list of block group ids where a superblock copy is stored."""
-    return self._copy_block_group_ids
+    return self._copyBlockGroupIds
 
   @property
   def firstInode(self):
     """Gets the first inode index that can be used by user data."""
-    return self._first_inode_index
+    return self._firstInodeIndex
 
   @property
   def inodeSize(self):
     """Gets the size of the inode structure in bytes."""
-    return self._inode_size
+    return self._inodeSize
 
   @property
   def _groupNum(self):
     """Gets the group number of this superblock. This value is unique for each superblock copy."""
-    return self._superblock_group_nr
+    return self.__groupNum
 
   @property
   def featuresCompatible(self):
     """Gets the bitmap of compatible features."""
-    return self._compat_feature_bitmask
+    return self._featuresCompatible
 
   @property
   def featuresIncompatible(self):
     """Gets the bitmap of incompatible features (do not mount if an indicated feature is not supported)."""
-    return self._incompat_feature_bitmask
+    return self._featuresIncompatible
 
   @property
   def featuresReadOnlyCompatible(self):
     """Gets the bitmap of features that are read-only compatible."""
-    return self._rocompat_feature_bitmask
+    return self._featuresReadOnlyCompatible
 
   @property
   def volumeId(self):
     """Gets the volume id."""
-    return self._vol_id
+    return self._volumeId
 
   @property
   def lastMountPath(self):
     """Gets the path where the filesystem was last mounted."""
-    return self._last_mount_path
+    return self._lastMountPath
 
   @property
   def compressionAlgorithms(self):
     """Gets the bitmap of compression algorithms used."""
-    return self._compression_algo
+    return self._compAlgorithms
 
   @property
-  def numPreallocBlocksFile(self):
+  def numPreallocateBlocksFile(self):
     """Gets the number of blocks to preallocate for new files."""
-    return self._num_prealloc_blocks_file
+    return self._numPreallocateBlocksFile
 
   @property
-  def numPreallocBlocksDir(self):
+  def numPreallocateBlocksDir(self):
     """Gets the number of blocks to preallocate for new directories."""
-    return self._num_prealloc_blocks_dir
+    return self._numPreallocateBlocksDir
 
   @property
   def journalSuperblockUUID(self):
     """Gets the UUID of the journal superblock."""
-    return self._journal_superblock_uuid
+    return self._journalSuperblockUuid
 
   @property
   def journalFileInode(self):
     """Gets the inode number of the journal file."""
-    return self._journal_file_inode_num
+    return self._journalFileInodeNum
 
   @property
   def journalFileDevice(self):
     """Gets the device number of the journal file."""
-    return self._journal_file_dev
+    return self._journalFileDev
 
   @property
   def lastOrphanInode(self):
     """Gets the inode number of the last orphan."""
-    return self._last_orphan_inode_num
+    return self._lastOrphanInodeNum
 
   @property
   def hashSeeds(self):
     """Gets a list of 4 hash seeds used for directory indexing."""
-    return self._hash_seeds
+    return self._hashSeeds
 
   @property
   def defaultHashVersion(self):
     """Gets the default hash version used for directory indexing."""
-    return self._def_hash_ver
+    return self._defHashVersion
 
   @property
   def defaultMountOptions(self):
     """Gets the default mount options."""
-    return self._def_mount_options
+    return self._defMountOptions
 
   @property
   def firstMetaBlockGroup(self):
     """Gets the id of the first meta block group."""
-    return self._first_meta_bgroup_id
+    return self._firstMetaGroupId
 
 
 
@@ -230,51 +230,51 @@ class _Superblock(object):
   @property
   def numFreeBlocks(self):
     """Gets the number of free blocks."""
-    return self._num_free_blocks
+    return self._numFreeBlocks
   @numFreeBlocks.setter
   def numFreeBlocks(self, value):
     """Sets the number of free blocks."""
-    self._num_free_blocks = value
+    self._numFreeBlocks = value
     # TODO write to image
 
   @property
   def numFreeInodes(self):
     """Gets the number of free inodes."""
-    return self._num_free_inodes
+    return self._numFreeInodes
   @numFreeInodes.setter
   def numFreeInodes(self, value):
     """Sets the number of free inodes."""
-    self._num_free_inodes = value
+    self._numFreeInodes = value
     # TODO write to image
 
   @property
   def timeLastMount(self):
     """Gets the last mount time."""
-    return self._time_last_mount
+    return self._timeLastMount
   @timeLastMount.setter
   def timeLastMount(self, value):
     """Sets the last mount time."""
-    self._time_last_mount = value
+    self._timeLastMount = value
     # TODO write to image
 
   @property
   def timeLastWrite(self):
     """Gets the time of last write access."""
-    return self._time_last_write
+    return self._timeLastWrite
   @timeLastWrite.setter
   def timeLastWrite(self, value):
     """Sets the time of last write access."""
-    self._time_last_write = value
+    self._timeLastWrite = value
     # TODO write to image
 
   @property
   def numMountsSinceCheck(self):
     """Gets the number of mounts since the last filesystem check."""
-    return self._num_mounts_since_check
+    return self._numMountsSinceCheck
   @numMountsSinceCheck.setter
   def numMountsSinceCheck(self, value):
     """Sets the number of mounts since the last filesystem check."""
-    self._num_mounts_since_check = value
+    self._numMountsSinceCheck = value
     # TODO write to image
 
   @property
@@ -293,11 +293,11 @@ class _Superblock(object):
   @property
   def volumeName(self):
     """Gets the name of the volume."""
-    return self._vol_name
+    return self._volName
   @volumeName.setter
   def volumeName(self, value):
     """Sets the name of the volume."""
-    self._vol_name = value
+    self._volName = value
     # TODO write to image
 
 
@@ -330,122 +330,122 @@ class _Superblock(object):
 
     # read standard fields
     fields = unpack_from("<7Ii5I6H4I2H", sbBytes)
-    self._num_inodes = fields[0]
-    self._num_blocks = fields[1]
-    self._num_res_blocks = fields[2]
-    self._num_free_blocks = fields[3]
-    self._num_free_inodes = fields[4]
-    self._first_block_id = fields[5]
-    self._block_size = 1024 << fields[6]
+    self._numInodes = fields[0]
+    self._numBlocks = fields[1]
+    self._numResBlocks = fields[2]
+    self._numFreeBlocks = fields[3]
+    self._numFreeInodes = fields[4]
+    self._firstBlockId = fields[5]
+    self._blockSize = 1024 << fields[6]
     if fields[7] > 0:
-      self._frag_size = 1024 << fields[7]
+      self._fragSize = 1024 << fields[7]
     else:
-      self._frag_size = 1024 >> abs(fields[7])
-    self._num_blocks_per_group = fields[8]
-    self._num_frags_per_group = fields[9]
-    self._num_inodes_per_group = fields[10]
-    self._time_last_mount = fields[11]
-    self._time_last_write = fields[12]
-    self._num_mounts_since_check = fields[13]
-    self._num_mounts_max = fields[14]
-    self._magic_number = fields[15]
+      self._fragSize = 1024 >> abs(fields[7])
+    self._numBlocksPerGroup = fields[8]
+    self._numFragsPerGroup = fields[9]
+    self._numInodesPerGroup = fields[10]
+    self._timeLastMount = fields[11]
+    self._timeLastWrite = fields[12]
+    self._numMountsSinceCheck = fields[13]
+    self._numMountsMax = fields[14]
+    self._magicNum = fields[15]
     if fields[16] == 1:
       self._state = "VALID"
     else:
       self._state = "ERROR"
     if fields[17] == 1:
-      self._error_action = "CONTINUE"
+      self._errorAction = "CONTINUE"
     elif fields[17] == 2:
-      self._error_action = "RO"
+      self._errorAction = "RO"
     else:
-      self._error_action = "PANIC"
-    self._rev_minor = fields[18]
-    self._time_last_check = fields[19]
-    self._time_between_check = fields[20]
+      self._errorAction = "PANIC"
+    self._revMinor = fields[18]
+    self._timeLastCheck = fields[19]
+    self._timeBetweenCheck = fields[20]
     if fields[21] == 0:
-      self._creator_os = "LINUX"
+      self._creatorOs = "LINUX"
     elif fields[21] == 1:
-      self._creator_os = "HURD"
+      self._creatorOs = "HURD"
     elif fields[21] == 2:
-      self._creator_os = "MASIX"
+      self._creatorOs = "MASIX"
     elif fields[21] == 3:
-      self._creator_os = "FREEBSD"
+      self._creatorOs = "FREEBSD"
     elif fields[21] == 4:
-      self._creator_os = "LITES"
+      self._creatorOs = "LITES"
     else:
-      self._creator_os = "UNDEFINED"
-    self._rev_level = fields[22]
-    self._def_uid_res = fields[23]
-    self._def_gid_res = fields[24]
+      self._creatorOs = "UNDEFINED"
+    self._revLevel = fields[22]
+    self._defResUid = fields[23]
+    self._defResGid = fields[24]
 
-    if self._num_blocks_per_group > 0:
-      self._num_block_groups = int(ceil(self._num_blocks / self._num_blocks_per_group))
+    if self._numBlocksPerGroup > 0:
+      self._numBlockGroups = int(ceil(self._numBlocks / self._numBlocksPerGroup))
     else:
-      self._num_block_groups = 0
+      self._numBlockGroups = 0
 
 
     # read additional fields
-    if self._rev_level == 0:
-      self._first_inode_index = 11
-      self._inode_size = 128
-      self._superblock_group_nr = 0
-      self._compat_feature_bitmask = 0
-      self._incompat_feature_bitmask = 0
-      self._rocompat_feature_bitmask = 0
-      self._vol_id = ""
-      self._vol_name = ""
-      self._last_mount_path = ""
-      self._compression_algo = None
-      self._num_prealloc_blocks_file = 0
-      self._num_prealloc_blocks_dir = 0
-      self._journal_superblock_uuid = None
-      self._journal_file_inode_num = None
-      self._journal_file_dev = None
-      self._last_orphan_inode_num = None
-      self._hash_seeds = None
-      self._def_hash_ver = None
-      self._def_mount_options = None
-      self._first_meta_bgroup_id = None
-      self._copy_block_group_ids = range(self._num_block_groups)
+    if self._revLevel == 0:
+      self._firstInodeIndex = 11
+      self._inodeSize = 128
+      self._groupNum = 0
+      self._featuresCompatible = 0
+      self._featuresIncompatible = 0
+      self._featuresReadOnlyCompatible = 0
+      self._volumeId = ""
+      self._volName = ""
+      self._lastMountPath = ""
+      self._compAlgorithms = None
+      self._numPreallocateBlocksFile = 0
+      self._numPreallocateBlocksDir = 0
+      self._journalSuperblockUuid = None
+      self._journalFileInodeNum = None
+      self._journalFileDev = None
+      self._lastOrphanInodeNum = None
+      self._hashSeeds = None
+      self._defHashVersion = None
+      self._defMountOptions = None
+      self._firstMetaGroupId = None
+      self._copyBlockGroupIds = range(self._numBlockGroups)
 
     else:
       fields = unpack_from("<I2H3I16s16s64sI2B2x16s3I4IB3x2I", sbBytes, 84)
-      self._first_inode_index = fields[0]
-      self._inode_size = fields[1]
-      self._superblock_group_nr = fields[2]
-      self._compat_feature_bitmask = fields[3]
-      self._incompat_feature_bitmask = fields[4]
-      self._rocompat_feature_bitmask = fields[5]
-      self._vol_id = fields[6].rstrip('\0')
-      self._vol_name = fields[7].rstrip('\0')
-      self._last_mount_path = fields[8].rstrip('\0')
-      self._compression_algo = fields[9]
-      self._num_prealloc_blocks_file = fields[10]
-      self._num_prealloc_blocks_dir = fields[11]
-      self._journal_superblock_uuid = fields[12].rstrip('\0')
-      self._journal_file_inode_num = fields[13]
-      self._journal_file_dev = fields[14]
-      self._last_orphan_inode_num = fields[15]
-      self._hash_seeds = []
-      self._hash_seeds.append(fields[16])
-      self._hash_seeds.append(fields[17])
-      self._hash_seeds.append(fields[18])
-      self._hash_seeds.append(fields[19])
-      self._def_hash_ver = fields[20]
-      self._def_mount_options = fields[21]
-      self._first_meta_bgroup_id = fields[22]
+      self._firstInodeIndex = fields[0]
+      self._inodeSize = fields[1]
+      self.__groupNum = fields[2]
+      self._featuresCompatible = fields[3]
+      self._featuresIncompatible = fields[4]
+      self._featuresReadOnlyCompatible = fields[5]
+      self._volumeId = fields[6].rstrip('\0')
+      self._volName = fields[7].rstrip('\0')
+      self._lastMountPath = fields[8].rstrip('\0')
+      self._compAlgorithms = fields[9]
+      self._numPreallocateBlocksFile = fields[10]
+      self._numPreallocateBlocksDir = fields[11]
+      self._journalSuperblockUuid = fields[12].rstrip('\0')
+      self._journalFileInodeNum = fields[13]
+      self._journalFileDev = fields[14]
+      self._lastOrphanInodeNum = fields[15]
+      self._hashSeeds = []
+      self._hashSeeds.append(fields[16])
+      self._hashSeeds.append(fields[17])
+      self._hashSeeds.append(fields[18])
+      self._hashSeeds.append(fields[19])
+      self._defHashVersion = fields[20]
+      self._defMountOptions = fields[21]
+      self._firstMetaGroupId = fields[22]
 
-      self._copy_block_group_ids = []
-      self._copy_block_group_ids.append(0)
-      if self._num_block_groups > 1:
-        self._copy_block_group_ids.append(1)
+      self._copyBlockGroupIds = []
+      self._copyBlockGroupIds.append(0)
+      if self._numBlockGroups > 1:
+        self._copyBlockGroupIds.append(1)
         last3 = 3
-        while last3 < self._num_block_groups:
-          self._copy_block_group_ids.append(last3)
+        while last3 < self._numBlockGroups:
+          self._copyBlockGroupIds.append(last3)
           last3 *= 3
         last7 = 7
-        while last7 < self._num_block_groups:
-          self._copy_block_group_ids.append(last7)
+        while last7 < self._numBlockGroups:
+          self._copyBlockGroupIds.append(last7)
           last7 *= 7
-        self._copy_block_group_ids.sort()
+        self._copyBlockGroupIds.sort()
 

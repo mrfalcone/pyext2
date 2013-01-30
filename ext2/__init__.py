@@ -8,5 +8,4 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 from .error import *
 from .disk import Ext2Disk
 from .file import Ext2File
-__all__ = ["Ext2File", "Ext2Disk", "InvalidImageFormatError", "InvalidFileTypeError", "UnsupportedOperationError",
-           "FileNotFoundError", "FileAlreadyExistsError"]
+__all__ = ["Ext2File", "Ext2Disk", "InvalidFileTypeError", "UnsupportedOperationError", "FileNotFoundError"]
