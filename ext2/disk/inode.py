@@ -143,7 +143,7 @@ class _Inode(object):
   # MAIN METHODS -------------------------------------
 
   @classmethod
-  def new(cls, bgdt, superblock, imageFile, mode, uid, gid):
+  def new(cls, bgdt, superblock, device, mode, uid, gid):
     """Allocates the first free inode and returns the new inode object."""
     bitmapStartPos = None
     bgroupNum = 0
@@ -157,8 +157,7 @@ class _Inode(object):
     if bitmapStartPos is None:
       raise Exception("No free inodes.")
 
-    imageFile.seek(bitmapStartPos)
-    bitmapBytes = imageFile.read(bitmapSize)
+    bitmapBytes = device.read(bitmapStartPos, bitmapSize)
     if len(bitmapBytes) < bitmapSize:
       raise Exception("Invalid inode bitmap.")
 
@@ -169,8 +168,7 @@ class _Inode(object):
         for i in range(8):
           if (1 << i) & byte == 0:
             inodeNum = (bgroupNum * superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
-            imageFile.seek(bitmapStartPos + byteIndex)
-            # TODO imageFile.write(pack("B", byte | (1 << i)))
+            device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
             break
     if inodeNum is None:
       raise Exception("No free inodes.")
@@ -196,16 +194,14 @@ class _Inode(object):
     bgroupIndex = (inodeNum - 1) % superblock.numInodesPerGroup
     tableStartPos = bgdtEntry.inodeTableLocation * superblock.blockSize
     inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
-    imageFile.seek(inodeStartPos)
-    # TODO imageFile.write(inodeBytes)
-    imageFile.flush()
+    device.write(inodeStartPos, inodeBytes)
 
-    return cls(inodeStartPos, inodeBytes, True, inodeNum, superblock, imageFile)
+    return cls(inodeStartPos, inodeBytes, True, inodeNum, superblock, device)
 
 
 
   @classmethod
-  def read(cls, inodeNum, bgdt, superblock, imageFile):
+  def read(cls, inodeNum, bgdt, superblock, device):
     """Reads the inode with the specified inode number and returns the new object."""
 
     bgroupNum = (inodeNum - 1) / superblock.numInodesPerGroup
@@ -217,23 +213,21 @@ class _Inode(object):
     
     tableStartPos = bgdtEntry.inodeTableLocation * superblock.blockSize
     inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
-
-    imageFile.seek(bitmapStartPos + bitmapByteIndex)
-    bitmapByte = unpack("B", imageFile.read(1))[0]
-    imageFile.seek(inodeStartPos)
-    inodeBytes = imageFile.read(superblock.inodeSize)
+    
+    bitmapByte = unpack("B", device.read(bitmapStartPos + bitmapByteIndex, 1))[0]
+    inodeBytes = device.read(inodeStartPos, superblock.inodeSize)
     if len(inodeBytes) < superblock.inodeSize:
       raise Exception("Invalid inode.")
 
     isUsed = (bitmapByte & (1 << (bgroupIndex % 8)) != 0)
-    return cls(inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, imageFile)
+    return cls(inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, device)
 
 
 
 
-  def __init__(self, inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, imageFile):
+  def __init__(self, inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, device):
     """Constructs a new inode from the given byte array."""
-    self._imageFile = imageFile
+    self._device = device
     self._superblock = superblock
     self._inodeStartPos = inodeStartPos
     
@@ -378,8 +372,7 @@ class _Inode(object):
 
   def __getBidListAtBid(self, bid):
     """Reads and returns the list of block ids at the specified block id on disk."""
-    self._imageFile.seek(bid * self._superblock.blockSize)
-    bytes = self._imageFile.read(self._superblock.blockSize)
+    bytes = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
     return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
   
   
@@ -387,6 +380,4 @@ class _Inode(object):
   def __writeData(self, offset, byteString):
     """Writes the specified string of bytes at the specified offset (from the start of the inode bytes)
     on the disk image."""
-    self._imageFile.seek(self._inodeStartPos + offset)
-    # TODO self._imageFile.write(byteString)
-    self._imageFile.flush()
+    self._device.write(self._inodeStartPos + offset, byteString)

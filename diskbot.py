@@ -490,7 +490,7 @@ def main():
     filename = args[1]
     del args[0:1]
     try:
-      disk = Ext2Disk(filename)
+      disk = Ext2Disk.fromImageFile(filename)
       with disk:
         run(args, disk)
     except Exception as e:

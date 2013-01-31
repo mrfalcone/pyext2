@@ -68,10 +68,10 @@ class _BGDTEntry(object):
     # TODO write to image
     
   
-  def __init__(self, startPos, imageFile, superblock, fields):
+  def __init__(self, startPos, device, superblock, fields):
     """Creates a new BGDT entry from the given fields."""
     self._superblock = superblock
-    self._imageFile = imageFile
+    self._device = device
     self._startPos = startPos
     self._blockBitmapBid = fields[0]
     self._inodeBitmapBid = fields[1]
@@ -94,31 +94,30 @@ class _BGDT(object):
 
 
   @classmethod
-  def new(cls, groupId, superblock, imageFile):
+  def new(cls, groupId, superblock, device):
     """Creates a new BGDT at the specified group number and returns the new object."""
     # TODO implement creation
     return None
 
 
   @classmethod
-  def read(cls, groupId, superblock, imageFile):
+  def read(cls, groupId, superblock, device):
     """Reads a BDGT at the specified group number and returns the new object."""
     groupStart = groupId * superblock.numBlocksPerGroup * superblock.blockSize
     startPos = groupStart + (superblock.blockSize * (superblock.firstDataBlockId + 1))
     tableSize = superblock.numBlockGroups * 32
-    imageFile.seek(startPos)
-    bgdtBytes = imageFile.read(tableSize)
+    bgdtBytes = device.read(startPos, tableSize)
     if len(bgdtBytes) < tableSize:
       raise Exception("Invalid block group descriptor table.")
-    return cls(bgdtBytes, superblock, imageFile)
+    return cls(bgdtBytes, superblock, device)
   
   
-  def __init__(self, bgdtBytes, superblock, imageFile):
+  def __init__(self, bgdtBytes, superblock, device):
     """Constructs a new BGDT from the given byte array."""
     self._entries = []
     for i in range(superblock.numBlockGroups):
       startPos = i * 32
       fields = unpack_from("<3I3H", bgdtBytes, startPos)
-      self._entries.append(_BGDTEntry(startPos, imageFile, superblock, fields))
+      self._entries.append(_BGDTEntry(startPos, device, superblock, fields))
 
 

@@ -306,7 +306,7 @@ class _Superblock(object):
   # MAIN METHODS -------------------------------------------
 
   @classmethod
-  def new(cls, byteOffset, imageFile):
+  def new(cls, byteOffset, device):
     """Creates a new superblock at the byte offset in the specified image file, and returns
     the new object."""
     # TODO implement creation
@@ -314,19 +314,18 @@ class _Superblock(object):
 
 
   @classmethod
-  def read(cls, byteOffset, imageFile):
-    """Reads a superblock from the bytes at byteOffset in imageFile and returns the superblock object."""
-    imageFile.seek(byteOffset)
-    sbBytes = imageFile.read(1024)
+  def read(cls, byteOffset, device):
+    """Reads a superblock from the bytes at byteOffset in device and returns the superblock object."""
+    sbBytes = device.read(byteOffset, 1024)
     if len(sbBytes) < 1024:
       raise Exception("Invalid superblock.")
-    return cls(sbBytes, byteOffset, imageFile)
+    return cls(sbBytes, byteOffset, device)
 
 
-  def __init__(self, sbBytes, byteOffset, imageFile):
+  def __init__(self, sbBytes, byteOffset, device):
     """Constructs a new superblock from the given byte array."""
     self._byteOffset = byteOffset
-    self._imageFile = imageFile
+    self._device = device
 
     # read standard fields
     fields = unpack_from("<7Ii5I6H4I2H", sbBytes)
@@ -388,7 +387,7 @@ class _Superblock(object):
     if self._revLevel == 0:
       self._firstInodeIndex = 11
       self._inodeSize = 128
-      self._groupNum = 0
+      self.__groupNum = 0
       self._featuresCompatible = 0
       self._featuresIncompatible = 0
       self._featuresReadOnlyCompatible = 0
