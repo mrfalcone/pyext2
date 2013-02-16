@@ -139,7 +139,7 @@ class Ext2File(object):
       self._path = "/"
     
     if not self._parentDir.isDir:
-      raise Exception("Invalid parent directory.")
+      raise FilesystemError("Invalid parent directory.")
     
 
     self._modeStr = list("----------")

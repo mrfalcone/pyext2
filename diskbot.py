@@ -270,18 +270,16 @@ def shell(disk):
           wd = cdDir
         except FileNotFoundError:
           print "The specified directory does not exist."
-        except Exception as e:
+        except FilesystemError as e:
           print "Error! {0}".format(e)
     elif cmd == "mkdir":
-      if len(args) == 0:
-        print "No directory name specified."
       try:
         path = " ".join(args)
         if path.startswith("/"):
           disk.rootDir.makeDirectory(path[1:])
         else:
           wd.makeDirectory(path)
-      except Exception as e:
+      except FilesystemError as e:
         print "Error! {0}".format(e)
     else:
       print "Command not recognized."
@@ -451,7 +449,7 @@ def run(args, disk):
       else:
         try:
           pushFile(disk, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
-        except Exception as e:
+        except FilesystemError as e:
           print "Error! {0}".format(e)
     
     if fetch:
@@ -468,7 +466,7 @@ def run(args, disk):
           destDirectory = args[destNameIndex]
         try:
           fetchFile(disk, args[srcNameIndex], destDirectory, not suppressIndicator)
-        except Exception as e:
+        except FilesystemError as e:
           print "Error! {0}".format(e)
     
     if enterShell:
@@ -493,7 +491,7 @@ def main():
       disk = Ext2Disk.fromImageFile(filename)
       with disk:
         run(args, disk)
-    except Exception as e:
+    except FilesystemError as e:
       print "Error! {0}".format(e)
       print
       quit()

@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from struct import pack,unpack_from
 from time import time
+from ..error import FilesystemError
 
 
 class _BGDTEntry(object):
@@ -114,7 +115,7 @@ class _BGDT(object):
     tableSize = superblock.numBlockGroups * 32
     bgdtBytes = device.read(startPos, tableSize)
     if len(bgdtBytes) < tableSize:
-      raise Exception("Invalid block group descriptor table.")
+      raise FilesystemError("Invalid block group descriptor table.")
     return cls(bgdtBytes, superblock, device)
   
   

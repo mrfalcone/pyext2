@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from struct import pack,unpack_from
 from math import ceil
+from ..error import FilesystemError
 
 
 class _Superblock(object):
@@ -294,7 +295,7 @@ class _Superblock(object):
   def volumeName(self, value):
     """Sets the name of the volume."""
     if len(value > 15):
-      raise Exception("Volume name too long.")
+      raise FilesystemError("Volume name too long.")
     self._volName = value
     self.__writeData(120, pack("<{0}sB".format(len(self._volName)), self._volName, 0))
 
@@ -314,7 +315,7 @@ class _Superblock(object):
     """Reads a superblock from the bytes at byteOffset in device and returns the superblock object."""
     sbBytes = device.read(byteOffset, 1024)
     if len(sbBytes) < 1024:
-      raise Exception("Invalid superblock.")
+      raise FilesystemError("Invalid superblock.")
     return cls(sbBytes, byteOffset, device)
 
 

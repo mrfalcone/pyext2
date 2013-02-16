@@ -11,6 +11,7 @@ from Queue import Queue
 from struct import pack, unpack
 from time import time
 from ..file.directory import _openRootDirectory
+from ..error import FilesystemError
 from .superblock import _Superblock
 from .bgdt import _BGDT
 from .inode import _Inode
@@ -34,49 +35,57 @@ class Ext2Disk(object):
   @property
   def revision(self):
     """Gets the filesystem revision string formatted as MAJOR.MINOR."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return "{0}.{1}".format(self._superblock.revisionMajor, self._superblock.revisionMinor)
   
   @property
   def totalSpace(self):
     """Gets the total filesystem size in bytes."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return self._superblock.blockSize * self._superblock.numBlocks
   
   @property
   def freeSpace(self):
     """Gets the number of free bytes."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return self._superblock.blockSize * self._superblock.numFreeBlocks
   
   @property
   def usedSpace(self):
     """Gets the number of used bytes."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return self.totalSpace - self.freeSpace
   
   @property
   def blockSize(self):
     """Gets the block size in bytes."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return self._superblock.blockSize
   
   @property
   def numBlockGroups(self):
     """Gets the number of block groups."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return len(self._bgdt.entries)
   
   @property
   def numInodes(self):
     """Gets the total number of inodes."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return self._superblock.numInodes
   
   @property
   def rootDir(self):
     """Gets the file object representing the root directory."""
-    assert self.isValid, "Filesystem is not valid."
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
     return self._rootDir
 
   @property
@@ -125,7 +134,7 @@ class Ext2Disk(object):
       if self._device.isMounted:
         self._device.unmount()
       self._isValid = False
-      raise Exception("Root directory could not be read.")
+      raise FilesystemError("Root directory could not be read.")
   
   
   
@@ -284,7 +293,7 @@ class Ext2Disk(object):
       bitmapSize = self._superblock.numInodesPerGroup / 8
       bitmapBytes = self._device.read(bitmapStartPos, bitmapSize)
       if len(bitmapBytes) < bitmapSize:
-        raise Exception("Invalid inode bitmap.")
+        raise FilesystemError("Invalid inode bitmap.")
       bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
     
     for groupNum,bitmap in enumerate(bitmaps):
@@ -309,7 +318,7 @@ class Ext2Disk(object):
       bitmapSize = self._superblock.numBlocksPerGroup / 8
       bitmapBytes = self._device.read(bitmapStartPos, bitmapSize)
       if len(bitmapBytes) < bitmapSize:
-        raise Exception("Invalid block bitmap.")
+        raise FilesystemError("Invalid block bitmap.")
       bitmaps.append(unpack("{0}B".format(bitmapSize), bitmapBytes))
         
     for groupNum,bitmap in enumerate(bitmaps):
@@ -329,7 +338,7 @@ class Ext2Disk(object):
     """Reads the entire block specified by the given block id and returns a string of bytes."""
     bytes = self._device.read(blockId * self._superblock.blockSize, self._superblock.blockSize)
     if len(bytes) < self._superblock.blockSize:
-      raise Exception("Invalid block.")
+      raise FilesystemError("Invalid block.")
     return bytes
 
 
@@ -347,11 +356,11 @@ class Ext2Disk(object):
         bitmapStartPos = bgdtEntry.blockBitmapLocation * self._superblock.blockSize
         break
     if bitmapStartPos is None:
-      raise Exception("No free blocks.")
+      raise FilesystemError("No free blocks.")
 
     bitmapBytes = self._device.read(bitmapStartPos, bitmapSize)
     if len(bitmapBytes) < bitmapSize:
-      raise Exception("Invalid block bitmap.")
+      raise FilesystemError("Invalid block bitmap.")
     bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
 
     for byteIndex, byte in enumerate(bitmap):
@@ -369,7 +378,7 @@ class Ext2Disk(object):
             self._superblock.timeLastWrite = int(time())
             return bid
     
-    raise Exception("No free blocks.")
+    raise FilesystemError("No free blocks.")
   
   
   

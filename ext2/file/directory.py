@@ -64,8 +64,10 @@ class _EntryList(object):
     the entry object."""
     
     nameLength = len(name)
-    assert nameLength <= 255, "Name is too long."
-    assert nameLength > 0, "Name is too short."
+    if nameLength > 255:
+      raise FilesystemError("Name is too long.")
+    if not nameLength > 0:
+      raise FilesystemError("Name is too short.")
 
     lastEntry = self._entries[-1]
 
@@ -138,7 +140,8 @@ class _Entry(object):
     if not value is None:
       if value._bindex == self._bindex:
         newSize = value._offset - self._offset
-        assert newSize > 0, "Next entry not after previous entry."
+        if not newSize > 0:
+          raise FilesystemError("Next entry not after previous entry.")
       else:
         newSize = self._containingDir._disk.blockSize - self._offset + value._offset
       self.__writeData(4, pack("<H", newSize))
@@ -183,7 +186,8 @@ class Ext2Directory(Ext2File):
   def __init__(self, dirEntry, inode, disk):
     """Constructs a new directory object from the specified directory entry."""
     super(Ext2Directory, self).__init__(dirEntry, inode, disk)
-    assert (self._inode.mode & 0x4000) != 0, "Inode does not point to a directory."
+    if (self._inode.mode & 0x4000) == 0:
+      raise FilesystemError("Inode does not point to a directory.")
     self._entryList = _EntryList(self)
 
 
@@ -240,6 +244,15 @@ class Ext2Directory(Ext2File):
     return curFile
 
 
+
+  def removeFile(self, file):
+    """Removes the specified file from the directory. If the file object is a non-empty
+    directory, an error is raised."""
+    raise UnsupportedOperationError()
+    
+
+
+
   def makeDirectory(self, name, uid = None, gid = None):
     """Creates a new directory in this directory and returns the new file object."""
     
@@ -286,12 +299,12 @@ class Ext2Directory(Ext2File):
       return parent.__makeNewEntry(name[name.rindex("/")+1:], mode, uid, gid)
     
     if len(name.strip()) == 0:
-      raise Exception("No name specified.")
+      raise FilesystemError("No name specified.")
 
     # make sure destination does not already exist
     for entry in self._entryList:
       if entry.name == name:
-        raise Exception("An entry with that name already exists.")
+        raise FilesystemError("An entry with that name already exists.")
     
     inode = self._disk._allocateInode(mode, uid, gid)
     bid = self._disk._allocateBlock(True)

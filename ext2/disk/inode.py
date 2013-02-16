@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from struct import pack, unpack, unpack_from
 from time import time
+from ..error import FilesystemError
 
 
 class _Inode(object):
@@ -147,11 +148,11 @@ class _Inode(object):
         bitmapStartPos = bgdtEntry.inodeBitmapLocation * superblock.blockSize
         break
     if bitmapStartPos is None:
-      raise Exception("No free inodes.")
+      raise FilesystemError("No free inodes.")
 
     bitmapBytes = device.read(bitmapStartPos, bitmapSize)
     if len(bitmapBytes) < bitmapSize:
-      raise Exception("Invalid inode bitmap.")
+      raise FilesystemError("Invalid inode bitmap.")
 
     
     def getAndMarkInode(bitmap):
@@ -166,7 +167,7 @@ class _Inode(object):
 
     inodeNum = getAndMarkInode(unpack("{0}B".format(bitmapSize), bitmapBytes))
     if inodeNum is None:
-      raise Exception("No free inodes.")
+      raise FilesystemError("No free inodes.")
 
     superblock.numFreeInodes -= 1
     bgdtEntry.numFreeInodes -= 1
@@ -212,7 +213,7 @@ class _Inode(object):
     bitmapByte = unpack("B", device.read(bitmapStartPos + bitmapByteIndex, 1))[0]
     inodeBytes = device.read(inodeStartPos, superblock.inodeSize)
     if len(inodeBytes) < superblock.inodeSize:
-      raise Exception("Invalid inode.")
+      raise FilesystemError("Invalid inode.")
 
     isUsed = (bitmapByte & (1 << (bgroupIndex % 8)) != 0)
     return cls(inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, device)
@@ -346,7 +347,7 @@ class _Inode(object):
       directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
       return directList[index % self._numIdsPerBlock]
 
-    raise Exception("Block not found.")
+    raise FilesystemError("Block not found.")
   
   
 
@@ -360,7 +361,7 @@ class _Inode(object):
         return i
     
     # TODO assign to indirect blocks
-    raise Exception("Not implemented.")
+    raise FilesystemError("Not implemented.")
 
 
 

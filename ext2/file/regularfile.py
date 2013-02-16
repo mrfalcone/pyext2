@@ -6,6 +6,7 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
+from ..error import FilesystemError
 from .file import Ext2File
 
 
@@ -20,7 +21,8 @@ class Ext2RegularFile(Ext2File):
   def __init__(self, dirEntry, inode, disk):
     """Constructs a new regular file object from the specified directory entry."""
     super(Ext2RegularFile, self).__init__(dirEntry, inode, disk)
-    assert (self._inode.mode & 0x8000) != 0, "Inode does not point to a regular file."
+    if (self._inode.mode & 0x8000) == 0:
+      raise FilesystemError("Inode does not point to a regular file.")
 
 
   def blocks(self):
