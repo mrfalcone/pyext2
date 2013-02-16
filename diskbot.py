@@ -207,10 +207,10 @@ def printDirectory(directory, recursive = False, showAll = False, verbose = Fals
   q = Queue()
   q.put(directory)
   while not q.empty():
-    dir = q.get()
+    d = q.get()
     if recursive:
-      print "{0}:".format(dir.absolutePath)
-    for f in dir.files():
+      print "{0}:".format(d.absolutePath)
+    for f in d.files():
       if not showAll and f.name.startswith("."):
         continue
       
@@ -242,11 +242,11 @@ def shell(disk):
   wd = disk.rootDir
   print "Entered shell mode. Type 'help' for shell commands."
   while True:
-    input = raw_input(": '{0}' >> ".format(wd.absolutePath)).rstrip().split()
-    if len(input) == 0:
+    inputline = raw_input(": '{0}' >> ".format(wd.absolutePath)).rstrip().split()
+    if len(inputline) == 0:
       continue
-    cmd = input[0]
-    args = input[1:]
+    cmd = inputline[0]
+    args = inputline[1:]
     if cmd == "help":
       printShellHelp()
     elif cmd == "exit":

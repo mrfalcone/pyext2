@@ -245,7 +245,7 @@ class Ext2Directory(Ext2File):
 
 
 
-  def removeFile(self, file):
+  def removeFile(self, f):
     """Removes the specified file from the directory. If the file object is a non-empty
     directory, an error is raised."""
     raise UnsupportedOperationError()

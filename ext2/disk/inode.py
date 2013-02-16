@@ -368,8 +368,8 @@ class _Inode(object):
 
   def __getBidListAtBid(self, bid):
     """Reads and returns the list of block ids at the specified block id on disk."""
-    bytes = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
-    return unpack_from("<{0}I".format(self._numIdsPerBlock), bytes)
+    block = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
+    return unpack_from("<{0}I".format(self._numIdsPerBlock), block)
   
   
   

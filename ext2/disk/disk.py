@@ -115,7 +115,7 @@ class Ext2Disk(object):
     self.mount()
     return self.rootDir
 
-  def __exit__ (self, type, value, tb):
+  def __exit__ (self, t, value, tb):
     """Unmounts the filesystem and re-raises any exception that occurred."""
     self.unmount()
   
@@ -161,8 +161,8 @@ class Ext2Disk(object):
     q = Queue()
     q.put(self.rootDir)
     while not q.empty():
-      dir = q.get()
-      for f in dir.files():
+      d = q.get()
+      for f in d.files():
         if f.name == "." or f.name == "..":
           continue
         if f.isDir:
@@ -253,8 +253,8 @@ class Ext2Disk(object):
     q = Queue()
     q.put(self.rootDir)
     while not q.empty():
-      dir = q.get()
-      for f in dir.files():
+      d = q.get()
+      for f in d.files():
         if f.name == "." or f.name == "..":
           continue
         if f.isDir:
@@ -336,10 +336,10 @@ class Ext2Disk(object):
   
   def _readBlock(self, blockId):
     """Reads the entire block specified by the given block id and returns a string of bytes."""
-    bytes = self._device.read(blockId * self._superblock.blockSize, self._superblock.blockSize)
-    if len(bytes) < self._superblock.blockSize:
+    block = self._device.read(blockId * self._superblock.blockSize, self._superblock.blockSize)
+    if len(block) < self._superblock.blockSize:
       raise FilesystemError("Invalid block.")
-    return bytes
+    return block
 
 
 

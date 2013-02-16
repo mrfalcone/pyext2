@@ -294,7 +294,7 @@ class _Superblock(object):
   @volumeName.setter
   def volumeName(self, value):
     """Sets the name of the volume."""
-    if len(value > 15):
+    if len(value) > 15:
       raise FilesystemError("Volume name too long.")
     self._volName = value
     self.__writeData(120, pack("<{0}sB".format(len(self._volName)), self._volName, 0))
