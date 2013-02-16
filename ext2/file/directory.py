@@ -27,13 +27,13 @@ class _EntryList(object):
     """Constructs a new directory entry list for the specified directory."""
     self._containingDir = containingDir
     self._entries = []
-    offset = 0
     prevEntry = None
     for i in range(containingDir.numBlocks):
       blockId = containingDir._inode.lookupBlockId(i)
       if blockId == 0:
         break
       blockBytes = containingDir._disk._readBlock(blockId)
+      offset = 0
       while offset < containingDir._disk.blockSize:
         entry = _Entry(i, blockId, offset, prevEntry, blockBytes[offset:], containingDir)
         if entry.inodeNum == 0:
@@ -73,21 +73,24 @@ class _EntryList(object):
     entrySize -= entrySize % 4 # align to 4 bytes
 
     # if new entry doesn't fit on current block, allocate a new one
-    if entrySize + lastEntry._offset + lastEntry._size < self._containingDir._disk.blockSize:
+    if entrySize + lastEntry._offset + len(lastEntry.name) + 11 < self._containingDir._disk.blockSize:
       entryBlockIndex = lastEntry._bindex
       entryBlockId = lastEntry._bid
-      entryOffset = lastEntry._offset + lastEntry._size
+      lastSize = len(lastEntry.name) + 11 # 7 bytes for record base, 4 bytes for alignment
+      lastSize -= lastSize % 4 # align to 4 bytes
+      entryOffset = lastEntry._offset + lastSize
     else:
       entryBlockId = self._containingDir._disk._allocateBlock(True)
       entryBlockIndex = self._containingDir._inode.assignNextBlockId(entryBlockId)
       self._containingDir._inode.size += self._containingDir._disk.blockSize
       entryOffset = 0
     
-    byteString = pack("<IHB{0}s".format(nameLength), inodeNum, entrySize, nameLength, name)
+    byteString = pack("<IHBB{0}s".format(nameLength), inodeNum, entrySize, nameLength, 0, name)
     self._containingDir._disk._writeToBlock(entryBlockId, entryOffset, byteString)
     newEntry = _Entry(entryBlockIndex, entryBlockId, entryOffset, None, byteString, self._containingDir)
     newEntry.prevEntry = lastEntry
     lastEntry.nextEntry = newEntry
+    self._entries.append(newEntry)
     return newEntry
 
 
@@ -204,8 +207,6 @@ class Ext2Directory(Ext2File):
 
 
 
-  # PUBLIC METHODS ------------------------------------------------
-
   def files(self):
     """Generates a list of files in the directory."""
     for entry in self._entryList:
@@ -258,8 +259,9 @@ class Ext2Directory(Ext2File):
     mode |= 0x0001 # others execute
     
     entry = self.__makeNewEntry(name, mode, uid, gid)
-    entry._append(".", entry.inodeNum)
-    entry._append("..", entry.containingDir.parentDir.inodeNum)
+    defaultEntries = pack("<IHBB1s3xIHBB2s", entry.inodeNum, 12, 1, 0, ".", self._inode.number, 12, 2, 0, "..")
+    inode = self._disk._readInode(entry._inodeNum)
+    self._disk._writeToBlock(inode.lookupBlockId(0), 0, defaultEntries)
     return Ext2Directory._openEntry(entry, self._disk)
 
 
@@ -275,9 +277,6 @@ class Ext2Directory(Ext2File):
     pass
 
 
-
-
-  # PRIVATE METHODS ------------------------------------------------
 
   def __makeNewEntry(self, name, mode, uid, gid):
     """Creates a new entry with the given parameters and returns the new object."""

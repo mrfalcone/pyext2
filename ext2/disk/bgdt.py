@@ -6,15 +6,13 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
-from struct import unpack_from
+from struct import pack,unpack_from
+from time import time
 
 
 class _BGDTEntry(object):
   """Models an entry in the block group descriptor table. For internal use only."""
-  _saveCopies = True
 
-
-  # READ-ONLY PROPERTIES -------------------------------------
 
   @property
   def blockBitmapLocation(self):
@@ -32,9 +30,6 @@ class _BGDTEntry(object):
     """Gets the block id of the inode table for this block group."""
     return self._inodeTableBid
 
-
-  # WRITABLE PROPERTIES -------------------------------------
-
   @property
   def numFreeBlocks(self):
     """Gets the number of free blocks."""
@@ -43,7 +38,7 @@ class _BGDTEntry(object):
   def numFreeBlocks(self, value):
     """Sets the number of free blocks."""
     self._numFreeBlocks = value
-    # TODO write to image
+    self.__writeData(12, pack("<H", self._numFreeBlocks))
 
 
   @property
@@ -54,7 +49,7 @@ class _BGDTEntry(object):
   def numFreeInodes(self, value):
     """Sets the number of free inodes."""
     self._numFreeInodes = value
-    # TODO write to image
+    self.__writeData(14, pack("<H", self._numFreeInodes))
 
 
   @property
@@ -65,7 +60,7 @@ class _BGDTEntry(object):
   def numInodesAsDirs(self, value):
     """Sets the number of inodes used as directories."""
     self._numInodesAsDirs = value
-    # TODO write to image
+    self.__writeData(16, pack("<H", self._numInodesAsDirs))
     
   
   def __init__(self, startPos, device, superblock, fields):
@@ -80,6 +75,17 @@ class _BGDTEntry(object):
     self._numFreeInodes = fields[4]
     self._numInodesAsDirs = fields[5]
 
+
+  def __writeData(self, offset, byteString):
+    """Writes the specified string of bytes at the specified offset (from the start of the bgdt entry bytes)
+    on the device."""
+    for groupId in self._superblock.copyLocations:
+      groupStart = groupId * self._superblock.numBlocksPerGroup * self._superblock.blockSize
+      tableStart = groupStart + (self._superblock.blockSize * (self._superblock.firstDataBlockId + 1))
+      self._device.write(tableStart + self._startPos + offset, byteString)
+      if not self._superblock._saveCopies:
+        break
+    self._superblock.timeLastWrite = int(time())
 
 
 

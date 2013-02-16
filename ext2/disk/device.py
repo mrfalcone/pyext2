@@ -41,7 +41,7 @@ class _DeviceFromFile(object):
     return self._imageFile.read(size)
   
   def write(self, position, byteString):
-    """Writes the specified byte string to the specified position."""
+    """Writes the specified byte string to the specified byte position."""
     self._imageFile.seek(position)
-    # TODO self._imageFile.write(byteString)
+    self._imageFile.write(byteString)
     self._imageFile.flush()

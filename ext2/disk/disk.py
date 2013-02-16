@@ -9,6 +9,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 import inspect
 from Queue import Queue
 from struct import pack, unpack
+from time import time
 from ..file.directory import _openRootDirectory
 from .superblock import _Superblock
 from .bgdt import _BGDT
@@ -24,8 +25,6 @@ class InformationReport(object):
 class Ext2Disk(object):
   """Models a disk image file formatted to the Ext2 filesystem."""
   
-  
-  # PROPERTIES -------------------------------------------------
   
   @property
   def fsType(self):
@@ -87,9 +86,6 @@ class Ext2Disk(object):
   
   
   
-  
-  # LIFECYCLE METHODS ------------------------------------
-
   @classmethod
   def fromImageFile(cls, imageFilename):
     """Creates a new Ext2 filesystem from the specified image file."""
@@ -142,9 +138,6 @@ class Ext2Disk(object):
   
   
   
-  
-  
-  # PUBLIC METHODS ------------------------------------
   
   def scanBlockGroups(self):
     """Scans all block groups and returns an information report about them."""
@@ -281,9 +274,6 @@ class Ext2Disk(object):
   
   
   
-  
-  # PRIVATE METHODS ------------------------------------
-  
   def __getUsedInodes(self):
     """Returns a list of all used inode numbers, excluding those reserved by the
     filesystem."""
@@ -364,7 +354,6 @@ class Ext2Disk(object):
       raise Exception("Invalid block bitmap.")
     bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
 
-    bid = 0
     for byteIndex, byte in enumerate(bitmap):
       if byte != 255:
         for i in range(8):
@@ -373,15 +362,14 @@ class Ext2Disk(object):
             self._device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
             self._superblock.numFreeBlocks -= 1
             bgdtEntry.numFreeBlocks -= 1
-            break
-        if bid != 0:
-          break
+            if zeros:
+              start = bid * self._superblock.blockSize
+              for i in range(self._superblock.blockSize):
+                self._device.write(start + i, pack("B", 0))
+            self._superblock.timeLastWrite = int(time())
+            return bid
     
-    if zeros:
-      byteString = pack("{0}B".format(self._superblock.blockSize), [0] * self._superblock.blockSize)
-      self._device.write(bid * self._superblock.blockSize, byteString)
-    
-    return bid
+    raise Exception("No free blocks.")
   
   
   
@@ -389,6 +377,7 @@ class Ext2Disk(object):
     """Writes the specified byte string to the specified block id at the given offset within the block."""
     assert offset + len(byteString) <= self._superblock.blockSize, "Byte array does not fit within block."
     self._device.write(offset + bid * self._superblock.blockSize, byteString)
+    self._superblock.timeLastWrite = int(time())
     
   
   

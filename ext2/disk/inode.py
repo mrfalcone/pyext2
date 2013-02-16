@@ -14,8 +14,6 @@ class _Inode(object):
   """Models an inode on the Ext2 fileystem. For internal use only."""
 
 
-  # READ-ONLY PROPERTIES -------------------------------------
-
   @property
   def number(self):
     """Gets the inode number of this inode."""
@@ -42,9 +40,6 @@ class _Inode(object):
     return self._blocks
 
 
-
-
-  # WRITABLE PROPERTIES -------------------------------------
 
   @property
   def mode(self):
@@ -139,9 +134,6 @@ class _Inode(object):
 
 
 
-
-  # MAIN METHODS -------------------------------------
-
   @classmethod
   def new(cls, bgdt, superblock, device, mode, uid, gid):
     """Allocates the first free inode and returns the new inode object."""
@@ -161,15 +153,18 @@ class _Inode(object):
     if len(bitmapBytes) < bitmapSize:
       raise Exception("Invalid inode bitmap.")
 
-    inodeNum = None
-    bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
-    for byteIndex, byte in enumerate(bitmap):
-      if byte != 255:
-        for i in range(8):
-          if (1 << i) & byte == 0:
-            inodeNum = (bgroupNum * superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
-            device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
-            break
+    
+    def getAndMarkInode(bitmap):
+      for byteIndex, byte in enumerate(bitmap):
+        if byte != 255:
+          for i in range(8):
+            if (1 << i) & byte == 0:
+              inodeNum = (bgroupNum * superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
+              device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
+              return inodeNum
+      return None
+
+    inodeNum = getAndMarkInode(unpack("{0}B".format(bitmapSize), bitmapBytes))
     if inodeNum is None:
       raise Exception("No free inodes.")
 
@@ -361,7 +356,7 @@ class _Inode(object):
     for i in range(12):
       if self._blocks[i] == 0:
         self._blocks[i] = bid
-        self.__writeData(40+i, pack("<I", self._blocks[i]))
+        self.__writeData(40+(i*4), pack("<I", bid))
         return i
     
     # TODO assign to indirect blocks
@@ -379,5 +374,6 @@ class _Inode(object):
   
   def __writeData(self, offset, byteString):
     """Writes the specified string of bytes at the specified offset (from the start of the inode bytes)
-    on the disk image."""
+    on the device."""
     self._device.write(self._inodeStartPos + offset, byteString)
+    self._superblock.timeLastWrite = int(time())

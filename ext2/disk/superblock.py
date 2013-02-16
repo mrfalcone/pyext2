@@ -6,16 +6,14 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
-from struct import unpack_from
+from struct import pack,unpack_from
 from math import ceil
 
 
 class _Superblock(object):
   """Provides access to the filesystem's superblock. For internal use only."""
-  _saveCopies = True
+  _saveCopies = False
 
-
-  # READ-ONLY PROPERTIES -------------------------------------
 
   @property
   def numInodes(self):
@@ -225,8 +223,6 @@ class _Superblock(object):
 
 
 
-  # WRITABLE PROPERTIES -------------------------------------
-
   @property
   def numFreeBlocks(self):
     """Gets the number of free blocks."""
@@ -235,7 +231,7 @@ class _Superblock(object):
   def numFreeBlocks(self, value):
     """Sets the number of free blocks."""
     self._numFreeBlocks = value
-    # TODO write to image
+    self.__writeData(12, pack("<I", self._numFreeBlocks))
 
   @property
   def numFreeInodes(self):
@@ -245,7 +241,7 @@ class _Superblock(object):
   def numFreeInodes(self, value):
     """Sets the number of free inodes."""
     self._numFreeInodes = value
-    # TODO write to image
+    self.__writeData(16, pack("<I", self._numFreeInodes))
 
   @property
   def timeLastMount(self):
@@ -255,7 +251,7 @@ class _Superblock(object):
   def timeLastMount(self, value):
     """Sets the last mount time."""
     self._timeLastMount = value
-    # TODO write to image
+    self.__writeData(44, pack("<I", self._timeLastMount))
 
   @property
   def timeLastWrite(self):
@@ -265,7 +261,7 @@ class _Superblock(object):
   def timeLastWrite(self, value):
     """Sets the time of last write access."""
     self._timeLastWrite = value
-    # TODO write to image
+    self.__writeData(48, pack("<I", self._timeLastWrite))
 
   @property
   def numMountsSinceCheck(self):
@@ -275,7 +271,7 @@ class _Superblock(object):
   def numMountsSinceCheck(self, value):
     """Sets the number of mounts since the last filesystem check."""
     self._numMountsSinceCheck = value
-    # TODO write to image
+    self.__writeData(52, pack("<H", self._numMountsSinceCheck))
 
   @property
   def state(self):
@@ -288,7 +284,7 @@ class _Superblock(object):
     """Sets the state of the filesystem as 1 for VALID or 0 for ERROR."""
     float(value) # raise exception if not a number
     self._state = value
-    # TODO write to image
+    self.__writeData(58, pack("<H", self._state))
 
   @property
   def volumeName(self):
@@ -297,13 +293,13 @@ class _Superblock(object):
   @volumeName.setter
   def volumeName(self, value):
     """Sets the name of the volume."""
+    if len(value > 15):
+      raise Exception("Volume name too long.")
     self._volName = value
-    # TODO write to image
+    self.__writeData(120, pack("<{0}sB".format(len(self._volName)), self._volName, 0))
 
 
 
-
-  # MAIN METHODS -------------------------------------------
 
   @classmethod
   def new(cls, byteOffset, device):
@@ -448,3 +444,14 @@ class _Superblock(object):
           last7 *= 7
         self._copyBlockGroupIds.sort()
 
+
+
+  def __writeData(self, offset, byteString):
+    """Writes the specified string of bytes at the specified offset (from the start of the superblock bytes)
+    on the device."""
+    for groupId in self.copyLocations:
+      groupStart = groupId * self.numBlocksPerGroup * self.blockSize
+      sbStart = groupStart + (self.blockSize * self.firstDataBlockId)
+      self._device.write(sbStart + offset, byteString)
+      if not self._saveCopies:
+        break
