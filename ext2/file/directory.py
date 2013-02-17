@@ -284,7 +284,7 @@ class Ext2Directory(Ext2File):
       rmFile._inode.numLinks -= 1
     
     if rmFile._inode.numLinks <= 0:
-      for bid in rmFile._inode.getUsedBlocks():
+      for bid in rmFile._inode.usedBlocks():
         self._fs._freeBlock(bid)
       rmFile._inode.free()
     

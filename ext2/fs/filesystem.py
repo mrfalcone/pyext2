@@ -267,7 +267,7 @@ class Ext2Filesystem(object):
           inodesReachable[f.inodeNum] = True
         
         # check block references
-        for bid in f._inode.getUsedBlocks():
+        for bid in f._inode.usedBlocks():
           if not bid in blocksAccessedBy:
             report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
           elif blocksAccessedBy[bid]:

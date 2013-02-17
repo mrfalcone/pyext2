@@ -295,54 +295,53 @@ class _Inode(object):
     
 
 
-  def getUsedBlocks(self):
-    """Returns a list of ALL block ids in use by the inode, including data
+  def usedBlocks(self):
+    """Generates a list of all block ids in use by the inode, including data
     and indirect blocks."""
-    blocks = []
-    for bid in self.blocks:
-      if bid != 0:
-        blocks.append(bid)
-      else:
+    
+    # get direct blocks
+    for i in range(12):
+      bid = self.blocks[i]
+      if bid == 0:
         break
+      yield bid
 
     # get indirect blocks
     if self.blocks[12] != 0:
       for bid in self.__getBidListAtBid(self.blocks[12]):
-        if bid != 0:
-          blocks.append(bid)
-        else:
-          return blocks
+        if bid == 0:
+          break
+        yield bid
+      yield self.blocks[12]
 
     # get doubly indirect blocks
     if self.blocks[13] != 0:
       for indirectBid in self.__getBidListAtBid(self.blocks[13]):
-        if indirectBid != 0:
-          blocks.append(indirectBid)
-          for bid in self.__getBidListAtBid(indirectBid):
-            if bid != 0:
-              blocks.append(bid)
-            else:
-              return blocks
-        else:
-          return blocks
+        if indirectBid == 0:
+          break
+        for bid in self.__getBidListAtBid(indirectBid):
+          if bid == 0:
+            break
+          yield bid
+        yield indirectBid
+      yield self.blocks[13]
 
     # get trebly indirect blocks
     if self.blocks[14] != 0:
       for doublyIndirectBid in self.__getBidListAtBid(self.blocks[14]):
-        if doublyIndirectBid != 0:
-          blocks.append(doublyIndirectBid)
-          for indirectBid in self.__getBidListAtBid(doublyIndirectBid):
-            if indirectBid != 0:
-              blocks.append(indirectBid)
-              for bid in self.__getBidListAtBid(indirectBid):
-                if bid != 0:
-                  blocks.append(bid)
-                else:
-                  return blocks
-        else:
-          return blocks
+        if doublyIndirectBid == 0:
+          break
+        for indirectBid in self.__getBidListAtBid(doublyIndirectBid):
+          if indirectBid == 0:
+            break
+          for bid in self.__getBidListAtBid(indirectBid):
+            if bid == 0:
+              break
+            yield bid
+          yield indirectBid
+        yield doublyIndirectBid
+      yield self.blocks[14]
 
-    return blocks
 
 
 
