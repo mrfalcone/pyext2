@@ -326,7 +326,7 @@ class Ext2Filesystem(object):
         if byte != 0:
           for i in range(8):
             if (1 << i) & byte != 0:
-              bid = (groupNum * self._superblock.numBlocksPerGroup) + (byteIndex * 8) + i + 1
+              bid = (groupNum * self._superblock.numBlocksPerGroup) + (byteIndex * 8) + i + self._superblock.firstDataBlockId
               used.append(bid)
     
     return used
@@ -334,13 +334,28 @@ class Ext2Filesystem(object):
   
   
   
-  def _readBlock(self, blockId):
+  def _readBlock(self, bid):
     """Reads the entire block specified by the given block id and returns a string of bytes."""
-    block = self._device.read(blockId * self._superblock.blockSize, self._superblock.blockSize)
+    block = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
     if len(block) < self._superblock.blockSize:
       raise FilesystemError("Invalid block.")
     return block
 
+
+
+  def _freeBlock(self, bid):
+    """Frees the block specified by the given block id."""
+    groupNum = (bid - self._superblock.firstDataBlockId) / self._superblock.numBlocksPerGroup
+    indexInGroup = (bid - self._superblock.firstDataBlockId) % self._superblock.numBlocksPerGroup
+    byteIndex = indexInGroup / 8
+    bitIndex = indexInGroup % 8
+
+    bgdtEntry = self._bgdt.entries[groupNum]
+    bitmapStartPos = bgdtEntry.blockBitmapLocation * self._superblock.blockSize
+    byte = unpack("B", self._device.read(bitmapStartPos + byteIndex, 1))[0]
+    self._device.write(bitmapStartPos + byteIndex, pack("B", int(byte) & ~(1 << bitIndex)))
+    self._superblock.numFreeBlocks += 1
+    bgdtEntry.numFreeBlocks += 1
 
 
 
@@ -367,7 +382,7 @@ class Ext2Filesystem(object):
       if byte != 255:
         for i in range(8):
           if (1 << i) & byte == 0:
-            bid = (groupNum * self._superblock.numBlocksPerGroup) + (byteIndex * 8) + i + 1
+            bid = (groupNum * self._superblock.numBlocksPerGroup) + (byteIndex * 8) + i + self._superblock.firstDataBlockId
             self._device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
             self._superblock.numFreeBlocks -= 1
             bgdtEntry.numFreeBlocks -= 1

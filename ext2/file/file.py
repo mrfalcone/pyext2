@@ -184,6 +184,10 @@ class Ext2File(object):
     FileNotFoundError if the file object cannot be found."""
     raise InvalidFileTypeError()
 
+  def removeFile(self, rmFile):
+    """Removes the specified file from the directory. If the file object is a non-empty
+    directory, an error is raised."""
+    raise InvalidFileTypeError()
 
   def makeDirectory(self, absolutePath):
     """Creates a new directory in this directory and returns the new file object."""

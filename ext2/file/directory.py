@@ -36,7 +36,7 @@ class _EntryList(object):
       offset = 0
       while offset < containingDir._fs.blockSize:
         entry = _Entry(i, blockId, offset, prevEntry, blockBytes[offset:], containingDir)
-        if entry.inodeNum == 0:
+        if entry.inodeNum == 0 or entry.size <= 0:
           break
         prevEntry = entry
         offset += entry.size
@@ -94,7 +94,13 @@ class _EntryList(object):
     lastEntry.nextEntry = newEntry
     self._entries.append(newEntry)
     return newEntry
-
+  
+  
+  def remove(self, entry):
+    """Removes the specified directory from the entry list."""
+    self._entries.remove(entry)
+    entry.inodeNum = 0
+    entry.prevEntry.nextEntry = entry.nextEntry
 
 
 
@@ -120,6 +126,11 @@ class _Entry(object):
   def inodeNum(self):
     """Gets the inode number of the file represented by this entry."""
     return self._inodeNum
+  @inodeNum.setter
+  def inodeNum(self, value):
+    """Sets the inode number of the file represented by this entry."""
+    self._inodeNum = value
+    self.__writeData(0, pack("<I", self._inodeNum))
 
   @property
   def prevEntry(self):
@@ -196,6 +207,7 @@ class Ext2Directory(Ext2File):
   def _openEntry(cls, dirEntry, fs):
     """Opens and returns the file object described by the specified directory entry."""
     if dirEntry:
+      assert dirEntry.inodeNum != 0
       inode = fs._readInode(dirEntry.inodeNum)
     else:
       inode = fs._readInode(2)
@@ -245,12 +257,38 @@ class Ext2Directory(Ext2File):
 
 
 
-  def removeFile(self, f):
+  def removeFile(self, rmFile):
     """Removes the specified file from the directory. If the file object is a non-empty
     directory, an error is raised."""
-    raise UnsupportedOperationError()
     
+    if rmFile.name == "." or rmFile.name == "..":
+      raise FilesystemError("Invalid directory name.")
+    
+    if rmFile.isDir:
+      numFiles = 0
+      for f in rmFile.files():
+        numFiles += 1
+        if numFiles > 2:
+          raise FilesystemError("Directory not empty.")
+      if rmFile.parentDir is rmFile:
+        raise FilesystemError("Cannot delete root directory.")
 
+    if not rmFile.parentDir is self:
+      raise FilesystemError("File or directory does not exist in the current directory.")
+
+    self._entryList.remove(rmFile._dirEntry)
+    if rmFile.isDir:
+      self._inode.numLinks -= 1
+      rmFile._inode.numLinks -= 2
+    else:
+      rmFile._inode.numLinks -= 1
+    
+    if rmFile._inode.numLinks <= 0:
+      for bid in rmFile._inode.getUsedBlocks():
+        self._fs._freeBlock(bid)
+      rmFile._inode.free()
+    
+    
 
 
   def makeDirectory(self, name, uid = None, gid = None):
@@ -273,7 +311,9 @@ class Ext2Directory(Ext2File):
     
     entry = self.__makeNewEntry(name, mode, uid, gid)
     defaultEntries = pack("<IHBB1s3xIHBB2s", entry.inodeNum, 12, 1, 0, ".", self._inode.number, 12, 2, 0, "..")
+    self._inode.numLinks += 1
     inode = self._fs._readInode(entry._inodeNum)
+    inode.numLinks += 1
     self._fs._writeToBlock(inode.lookupBlockId(0), 0, defaultEntries)
     return Ext2Directory._openEntry(entry, self._fs)
 

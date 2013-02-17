@@ -182,11 +182,11 @@ def printShellHelp():
   rsp = 4
   print "Supported commands:"
   print "{0}{1}".format("pwd".ljust(sp), "Prints the current working directory.")
-  print "{0}{1}".format("ls [-R,-a,-v]".ljust(sp), "Prints the entries in the working directory.")
+  print "{0}{1}".format("ls [-R,-a,-l]".ljust(sp), "Prints the entries in the working directory.")
   print "{0}{1}".format("".ljust(sp), "Optional flags:")
   print "{0}{1}{2}".format("".ljust(sp), "-R".ljust(rsp), "Lists entries recursively.")
   print "{0}{1}{2}".format("".ljust(sp), "-a".ljust(rsp), "Lists hidden entries.")
-  print "{0}{1}{2}".format("".ljust(sp), "-v".ljust(rsp), "Verbose listing.")
+  print "{0}{1}{2}".format("".ljust(sp), "-l".ljust(rsp), "Detailed listing.")
   print
   print "{0}{1}".format("cd directory".ljust(sp), "Changes to the specified directory. Treats everything")
   print "{0}{1}".format("".ljust(sp), "following the command as a directory name.")
@@ -254,7 +254,7 @@ def shell(fs):
     elif cmd == "pwd":
       print wd.absolutePath
     elif cmd == "ls":
-      printDirectory(wd, "-R" in args, "-a" in args, "-v" in args)
+      printDirectory(wd, "-R" in args, "-a" in args, "-l" in args)
     elif cmd == "cd":
       if len(args) == 0:
         print "No path specified."
@@ -279,6 +279,19 @@ def shell(fs):
           fs.rootDir.makeDirectory(path[1:])
         else:
           wd.makeDirectory(path)
+      except FilesystemError as e:
+        print "Error! {0}".format(e)
+    elif cmd == "rm":
+      try:
+        path = " ".join(args)
+        if path.startswith("/"):
+          rmFile = fs.rootDir.getFileAt(path[1:])
+          fs.rootDir.removeFile(rmFile)
+        else:
+          rmFile = wd.getFileAt(path)
+          wd.removeFile(rmFile)
+      except FileNotFoundError as e:
+        print "The specified file or directory does not exist."
       except FilesystemError as e:
         print "Error! {0}".format(e)
     else:

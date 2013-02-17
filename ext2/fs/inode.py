@@ -161,6 +161,8 @@ class _Inode(object):
           for i in range(8):
             if (1 << i) & byte == 0:
               inodeNum = (bgroupNum * superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
+              if inodeNum < superblock.firstInode:
+                continue
               device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
               return inodeNum
       return None
@@ -192,7 +194,7 @@ class _Inode(object):
     inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
     device.write(inodeStartPos, inodeBytes)
 
-    return cls(inodeStartPos, inodeBytes, True, inodeNum, superblock, device)
+    return cls(inodeStartPos, inodeBytes, True, inodeNum, bgdt, superblock, device)
 
 
 
@@ -216,14 +218,15 @@ class _Inode(object):
       raise FilesystemError("Invalid inode.")
 
     isUsed = (bitmapByte & (1 << (bgroupIndex % 8)) != 0)
-    return cls(inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, device)
+    return cls(inodeStartPos, inodeBytes, isUsed, inodeNum, bgdt, superblock, device)
 
 
 
 
-  def __init__(self, inodeStartPos, inodeBytes, isUsed, inodeNum, superblock, device):
+  def __init__(self, inodeStartPos, inodeBytes, isUsed, inodeNum, bgdt, superblock, device):
     """Constructs a new inode from the given byte array."""
     self._device = device
+    self._bgdt = bgdt
     self._superblock = superblock
     self._inodeStartPos = inodeStartPos
     
@@ -269,6 +272,27 @@ class _Inode(object):
     self._numDoublyIndirectBlocks = self._numIndirectBlocks + self._numIdsPerBlock ** 2
     self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
 
+
+
+  def free(self):
+    """Frees this inode so that it can be reused. All referenced blocks should be freed before calling."""
+    bgroupNum = (self.number - 1) / self._superblock.numInodesPerGroup
+    indexInGroup = (self.number - 1) % self._superblock.numInodesPerGroup
+    byteIndex = indexInGroup / 8
+    bitIndex = indexInGroup % 8
+    
+    bgdtEntry = self._bgdt.entries[bgroupNum]
+    bitmapStartPos = bgdtEntry.inodeBitmapLocation * self._superblock.blockSize
+    
+    byte = unpack("B", self._device.read(bitmapStartPos + byteIndex, 1))[0]
+    self._device.write(bitmapStartPos + byteIndex, pack("B", int(byte) & ~(1 << bitIndex)))
+    self._superblock.numFreeInodes += 1
+    bgdtEntry.numFreeInodes += 1
+    if (self.mode & 0x4000) != 0:
+      bgdtEntry.numInodesAsDirs -= 1
+    self.timeDeleted = int(time())
+    self._used = False
+    
 
 
   def getUsedBlocks(self):

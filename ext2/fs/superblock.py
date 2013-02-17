@@ -451,8 +451,8 @@ class _Superblock(object):
     """Writes the specified string of bytes at the specified offset (from the start of the superblock bytes)
     on the device."""
     for groupId in self.copyLocations:
-      groupStart = groupId * self.numBlocksPerGroup * self.blockSize
-      sbStart = groupStart + (self.blockSize * self.firstDataBlockId)
+      sbStart = 1024 + groupId * self.numBlocksPerGroup * self.blockSize
+      
       self._device.write(sbStart + offset, byteString)
       if not self._saveCopies:
         break
