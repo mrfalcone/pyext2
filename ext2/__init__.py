@@ -6,7 +6,7 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from .error import *
-from .disk import Ext2Disk
+from .fs import Ext2Filesystem
 from .file import Ext2File
-__all__ = ["Ext2File", "Ext2Disk", "FilesystemError", "InvalidFileTypeError",
+__all__ = ["Ext2File", "Ext2Filesystem", "FilesystemError", "InvalidFileTypeError",
            "UnsupportedOperationError", "FileNotFoundError"]

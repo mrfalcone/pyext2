@@ -62,7 +62,7 @@ class WaitIndicatorThread(Thread):
 
 
 
-# ========= DISK INFORMATION ==============================================
+# ========= FILESYSTEM INFORMATION ==============================================
 
 def printInfoPairs(pairs):
   """Prints the info strings stored in a list of pairs, justified."""
@@ -85,17 +85,17 @@ def printInfoPairs(pairs):
 
 
 
-def getGeneralInfo(disk):
-  """Gets general information about the disk and generates a list of information pairs."""
+def getGeneralInfo(fs):
+  """Gets general information about the filesystem and generates a list of information pairs."""
   pairs = []
-  if disk.fsType == "EXT2":
+  if fs.fsType == "EXT2":
     pairs.append( ("GENERAL INFORMATION", None) )
-    pairs.append( ("Ext2 revision", "{0}".format(disk.revision)) )
-    pairs.append( ("Total space", "{0:.2f} MB ({1} bytes)".format(float(disk.totalSpace) / 1048576, disk.totalSpace)) )
-    pairs.append( ("Used space", "{0:.2f} MB ({1} bytes)".format(float(disk.usedSpace) / 1048576, disk.usedSpace)) )
-    pairs.append( ("Block size", "{0} bytes".format(disk.blockSize)) )
-    pairs.append( ("Num inodes", "{0}".format(disk.numInodes)) )
-    pairs.append( ("Num block groups", "{0}".format(disk.numBlockGroups)) )
+    pairs.append( ("Ext2 revision", "{0}".format(fs.revision)) )
+    pairs.append( ("Total space", "{0:.2f} MB ({1} bytes)".format(float(fs.totalSpace) / 1048576, fs.totalSpace)) )
+    pairs.append( ("Used space", "{0:.2f} MB ({1} bytes)".format(float(fs.usedSpace) / 1048576, fs.usedSpace)) )
+    pairs.append( ("Block size", "{0} bytes".format(fs.blockSize)) )
+    pairs.append( ("Num inodes", "{0}".format(fs.numInodes)) )
+    pairs.append( ("Num block groups", "{0}".format(fs.numBlockGroups)) )
     
   else:
     raise FilesystemNotSupportedError()
@@ -104,20 +104,20 @@ def getGeneralInfo(disk):
 
 
 
-def generateDetailedInfo(disk, showWaitIndicator = True):
-  """Scans the disk to gather detailed information about space usage and returns
+def generateDetailedInfo(fs, showWaitIndicator = True):
+  """Scans the filesystem to gather detailed information about space usage and returns
   a list of information pairs."""
-  if disk.fsType == "EXT2":
+  if fs.fsType == "EXT2":
     if showWaitIndicator:
       wait = WaitIndicatorThread("Scanning filesystem...")
       wait.start()
       try:
-        report = disk.scanBlockGroups()
+        report = fs.scanBlockGroups()
       finally:
         wait.done = True
       wait.join()
     else:
-      report = disk.scanBlockGroups()
+      report = fs.scanBlockGroups()
     
     pairs = []
     pairs.append( ("DETAILED STORAGE INFORMATION", None) )
@@ -139,20 +139,20 @@ def generateDetailedInfo(disk, showWaitIndicator = True):
 
 
 
-def generateIntegrityReport(disk, showWaitIndicator = True):
-  """Runs an integrity report on the disk and returns the results as a list of
+def generateIntegrityReport(fs, showWaitIndicator = True):
+  """Runs an integrity report on the filesystem and returns the results as a list of
   information pairs."""
-  if disk.fsType == "EXT2":
+  if fs.fsType == "EXT2":
     if showWaitIndicator:
-      wait = WaitIndicatorThread("Checking disk integrity...")
+      wait = WaitIndicatorThread("Checking filesystem integrity...")
       wait.start()
       try:
-        report = disk.checkIntegrity()
+        report = fs.checkIntegrity()
       finally:
         wait.done = True
       wait.join()
     else:
-      report = disk.checkIntegrity()
+      report = fs.checkIntegrity()
     
     pairs = []
     pairs.append( ("INTEGRITY REPORT", None) )
@@ -237,9 +237,9 @@ def printDirectory(directory, recursive = False, showAll = False, verbose = Fals
 
 
 
-def shell(disk):
-  """Enters a command-line shell with commands for operating on the specified disk."""
-  wd = disk.rootDir
+def shell(fs):
+  """Enters a command-line shell with commands for operating on the specified filesystem."""
+  wd = fs.rootDir
   print "Entered shell mode. Type 'help' for shell commands."
   while True:
     inputline = raw_input(": '{0}' >> ".format(wd.absolutePath)).rstrip().split()
@@ -262,7 +262,7 @@ def shell(disk):
         path = " ".join(args)
         try:
           if path.startswith("/"):
-            cdDir = disk.rootDir.getFileAt(path[1:])
+            cdDir = fs.rootDir.getFileAt(path[1:])
           else:
             cdDir = wd.getFileAt(path)
           if not cdDir.isDir:
@@ -276,7 +276,7 @@ def shell(disk):
       try:
         path = " ".join(args)
         if path.startswith("/"):
-          disk.rootDir.makeDirectory(path[1:])
+          fs.rootDir.makeDirectory(path[1:])
         else:
           wd.makeDirectory(path)
       except FilesystemError as e:
@@ -291,15 +291,15 @@ def shell(disk):
 
 # ========= FILE TRANSFER ==============================================
 
-def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
-  """Fetches the specified file from the disk image filesystem and places it in
+def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
+  """Fetches the specified file from the filesystem image and places it in
   the local destination directory."""
-  if not disk.fsType == "EXT2":
+  if not fs.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
   filesToFetch = []
   if srcFilename.endswith("/*"):
-    directory = disk.rootDir.getFileAt(srcFilename[:-1])
+    directory = fs.rootDir.getFileAt(srcFilename[:-1])
     destDirectory = "{0}/{1}".format(destDirectory, directory.name)
     for f in directory.files():
       if f.isRegular:
@@ -316,7 +316,7 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
     
   for srcFilename in filesToFetch:
     try:
-      srcFile = disk.rootDir.getFileAt(srcFilename)
+      srcFile = fs.rootDir.getFileAt(srcFilename)
     except FileNotFoundError:
       raise Exception("The source file cannot be found on the filesystem image.")
     
@@ -360,15 +360,15 @@ def fetchFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
 
 
 
-def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
-  """Pushes the specified local file to the specified destination directory on the disk image filesystem."""
-  if not disk.fsType == "EXT2":
+def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
+  """Pushes the specified local file to the specified destination directory on the filesystem image."""
+  if not fs.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
   destFilename = "{0}/{1}".format(destDirectory, srcFilename[srcFilename.rfind("/")+1:])
   
   try:
-    directory = disk.rootDir.getFileAt(destDirectory)
+    directory = fs.rootDir.getFileAt(destDirectory)
   except FileNotFoundError:
     raise Exception("Destination directory does not exist.")
   
@@ -388,7 +388,7 @@ def pushFile(disk, srcFilename, destDirectory, showWaitIndicator = True):
 def printHelp():
   """Prints the help screen for the main application, with usage and command options."""
   sp = 26
-  print "Usage: {0} disk_image_file options".format(sys.argv[0])
+  print "Usage: {0} image_file options".format(sys.argv[0])
   print
   print "Options:"
   print "{0}{1}".format("-s".ljust(sp), "Enters shell mode.")
@@ -413,8 +413,8 @@ def printHelp():
   print
 
 
-def run(args, disk):
-  """Runs the program on the specified disk with the given command line arguments."""
+def run(args, fs):
+  """Runs the program on the specified filesystem with the given command line arguments."""
   showHelp = ("-h" in args)
   enterShell = ("-s" in args)
   showGeneralInfo = ("-i" in args)
@@ -431,11 +431,11 @@ def run(args, disk):
   else:
     info = []
     if showGeneralInfo:
-      info.extend(getGeneralInfo(disk))
+      info.extend(getGeneralInfo(fs))
     if showDetailedInfo:
-      info.extend(generateDetailedInfo(disk, not suppressIndicator))
+      info.extend(generateDetailedInfo(fs, not suppressIndicator))
     if showIntegrityCheck:
-      info.extend(generateIntegrityReport(disk, not suppressIndicator))
+      info.extend(generateIntegrityReport(fs, not suppressIndicator))
     if len(info) > 0:
       printInfoPairs(info)
       
@@ -448,7 +448,7 @@ def run(args, disk):
         print "Error! No destination directory specified for pushed file."
       else:
         try:
-          pushFile(disk, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
+          pushFile(fs, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
         except FilesystemError as e:
           print "Error! {0}".format(e)
     
@@ -465,18 +465,18 @@ def run(args, disk):
         else:
           destDirectory = args[destNameIndex]
         try:
-          fetchFile(disk, args[srcNameIndex], destDirectory, not suppressIndicator)
+          fetchFile(fs, args[srcNameIndex], destDirectory, not suppressIndicator)
         except FilesystemError as e:
           print "Error! {0}".format(e)
     
     if enterShell:
-      shell(disk)
+      shell(fs)
 
 
 
 def main():
   """Main entry point of the application."""
-  disk = None
+  fs = None
   args = list(sys.argv)
   if len(args) < 3:
     printHelp()
@@ -488,9 +488,9 @@ def main():
     filename = args[1]
     del args[0:1]
     try:
-      disk = Ext2Disk.fromImageFile(filename)
-      with disk:
-        run(args, disk)
+      fs = Ext2Filesystem.fromImageFile(filename)
+      with fs:
+        run(args, fs)
     except FilesystemError as e:
       print "Error! {0}".format(e)
       print

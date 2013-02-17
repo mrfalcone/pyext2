@@ -14,9 +14,9 @@ from .symlink import Ext2Symlink
 from .regularfile import Ext2RegularFile
 
 
-def _openRootDirectory(disk):
-  """Opens and returns the root directory of the specified disk."""
-  return Ext2Directory._openEntry(None, disk)
+def _openRootDirectory(fs):
+  """Opens and returns the root directory of the specified filesystem."""
+  return Ext2Directory._openEntry(None, fs)
 
 
 
@@ -32,9 +32,9 @@ class _EntryList(object):
       blockId = containingDir._inode.lookupBlockId(i)
       if blockId == 0:
         break
-      blockBytes = containingDir._disk._readBlock(blockId)
+      blockBytes = containingDir._fs._readBlock(blockId)
       offset = 0
-      while offset < containingDir._disk.blockSize:
+      while offset < containingDir._fs.blockSize:
         entry = _Entry(i, blockId, offset, prevEntry, blockBytes[offset:], containingDir)
         if entry.inodeNum == 0:
           break
@@ -75,20 +75,20 @@ class _EntryList(object):
     entrySize -= entrySize % 4 # align to 4 bytes
 
     # if new entry doesn't fit on current block, allocate a new one
-    if entrySize + lastEntry._offset + len(lastEntry.name) + 11 < self._containingDir._disk.blockSize:
+    if entrySize + lastEntry._offset + len(lastEntry.name) + 11 < self._containingDir._fs.blockSize:
       entryBlockIndex = lastEntry._bindex
       entryBlockId = lastEntry._bid
       lastSize = len(lastEntry.name) + 11 # 7 bytes for record base, 4 bytes for alignment
       lastSize -= lastSize % 4 # align to 4 bytes
       entryOffset = lastEntry._offset + lastSize
     else:
-      entryBlockId = self._containingDir._disk._allocateBlock(True)
+      entryBlockId = self._containingDir._fs._allocateBlock(True)
       entryBlockIndex = self._containingDir._inode.assignNextBlockId(entryBlockId)
-      self._containingDir._inode.size += self._containingDir._disk.blockSize
+      self._containingDir._inode.size += self._containingDir._fs.blockSize
       entryOffset = 0
     
     byteString = pack("<IHBB{0}s".format(nameLength), inodeNum, entrySize, nameLength, 0, name)
-    self._containingDir._disk._writeToBlock(entryBlockId, entryOffset, byteString)
+    self._containingDir._fs._writeToBlock(entryBlockId, entryOffset, byteString)
     newEntry = _Entry(entryBlockIndex, entryBlockId, entryOffset, None, byteString, self._containingDir)
     newEntry.prevEntry = lastEntry
     lastEntry.nextEntry = newEntry
@@ -143,7 +143,7 @@ class _Entry(object):
         if not newSize > 0:
           raise FilesystemError("Next entry not after previous entry.")
       else:
-        newSize = self._containingDir._disk.blockSize - self._offset + value._offset
+        newSize = self._containingDir._fs.blockSize - self._offset + value._offset
       self.__writeData(4, pack("<H", newSize))
     self._nextEntry = value
 
@@ -167,7 +167,7 @@ class _Entry(object):
   
   def __writeData(self, offset, byteString):
     """Writes the specified byte string to the offset within the entry."""
-    self._containingDir._disk._writeToBlock(self._bid, self._offset + offset, byteString)
+    self._containingDir._fs._writeToBlock(self._bid, self._offset + offset, byteString)
 
     
 
@@ -183,9 +183,9 @@ class Ext2Directory(Ext2File):
     return True
 
 
-  def __init__(self, dirEntry, inode, disk):
+  def __init__(self, dirEntry, inode, fs):
     """Constructs a new directory object from the specified directory entry."""
-    super(Ext2Directory, self).__init__(dirEntry, inode, disk)
+    super(Ext2Directory, self).__init__(dirEntry, inode, fs)
     if (self._inode.mode & 0x4000) == 0:
       raise FilesystemError("Inode does not point to a directory.")
     self._entryList = _EntryList(self)
@@ -193,28 +193,28 @@ class Ext2Directory(Ext2File):
 
 
   @classmethod
-  def _openEntry(cls, dirEntry, disk):
+  def _openEntry(cls, dirEntry, fs):
     """Opens and returns the file object described by the specified directory entry."""
     if dirEntry:
-      inode = disk._readInode(dirEntry.inodeNum)
+      inode = fs._readInode(dirEntry.inodeNum)
     else:
-      inode = disk._readInode(2)
+      inode = fs._readInode(2)
 
     if (inode.mode & 0x4000) != 0:
-      return Ext2Directory(dirEntry, inode, disk)
+      return Ext2Directory(dirEntry, inode, fs)
     if (inode.mode & 0x8000) != 0:
-      return Ext2RegularFile(dirEntry, inode, disk)
+      return Ext2RegularFile(dirEntry, inode, fs)
     if (inode.mode & 0xA000) != 0:
-      return Ext2Symlink(dirEntry, inode, disk)
+      return Ext2Symlink(dirEntry, inode, fs)
 
-    return Ext2File(dirEntry, inode, disk)
+    return Ext2File(dirEntry, inode, fs)
 
 
 
   def files(self):
     """Generates a list of files in the directory."""
     for entry in self._entryList:
-      yield Ext2Directory._openEntry(entry, self._disk)
+      yield Ext2Directory._openEntry(entry, self._fs)
 
 
 
@@ -235,7 +235,7 @@ class Ext2Directory(Ext2File):
       if curFile.isDir:
         for entry in curFile._entryList:
           if entry.name == curPart:
-            curFile = Ext2Directory._openEntry(entry, self._disk)
+            curFile = Ext2Directory._openEntry(entry, self._fs)
             break
     
     if pathParts[-1] != "" and pathParts[-1] != curFile.name:
@@ -273,9 +273,9 @@ class Ext2Directory(Ext2File):
     
     entry = self.__makeNewEntry(name, mode, uid, gid)
     defaultEntries = pack("<IHBB1s3xIHBB2s", entry.inodeNum, 12, 1, 0, ".", self._inode.number, 12, 2, 0, "..")
-    inode = self._disk._readInode(entry._inodeNum)
-    self._disk._writeToBlock(inode.lookupBlockId(0), 0, defaultEntries)
-    return Ext2Directory._openEntry(entry, self._disk)
+    inode = self._fs._readInode(entry._inodeNum)
+    self._fs._writeToBlock(inode.lookupBlockId(0), 0, defaultEntries)
+    return Ext2Directory._openEntry(entry, self._fs)
 
 
 
@@ -306,10 +306,10 @@ class Ext2Directory(Ext2File):
       if entry.name == name:
         raise FilesystemError("An entry with that name already exists.")
     
-    inode = self._disk._allocateInode(mode, uid, gid)
-    bid = self._disk._allocateBlock(True)
+    inode = self._fs._allocateInode(mode, uid, gid)
+    bid = self._fs._allocateBlock(True)
     inode.assignNextBlockId(bid)
-    inode.size += self._disk.blockSize
+    inode.size += self._fs.blockSize
     
     entry = self._entryList.append(name, inode.number)
     inode.numLinks += 1

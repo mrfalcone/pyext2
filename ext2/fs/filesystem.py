@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Defines the disk class used by the ext2 module.
+Defines the filesystem class used by the ext2 module.
 """
 __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
@@ -23,8 +23,8 @@ class InformationReport(object):
   pass
 
 
-class Ext2Disk(object):
-  """Models a disk image file formatted to the Ext2 filesystem."""
+class Ext2Filesystem(object):
+  """Models a filesystem image file formatted to Ext2."""
   
   
   @property
@@ -90,7 +90,7 @@ class Ext2Disk(object):
 
   @property
   def isValid(self):
-    """Gets whether the disk's filesystem is valid and mounted."""
+    """Gets whether the filesystem is valid and mounted."""
     return self._isValid
   
   
@@ -122,7 +122,7 @@ class Ext2Disk(object):
   
   
   def mount(self):
-    """Mounts the Ext2 disk for reading and writing and reads the root directory. Raises an
+    """Mounts the Ext2 filesystem for reading and writing and reads the root directory. Raises an
     error if the root directory cannot be read."""
     self._device.mount()
     try:
@@ -139,8 +139,8 @@ class Ext2Disk(object):
   
   
   def unmount(self):
-    """Unmounts the Ext2 disk so that reading and writing may no longer occur, and closes
-    access to the disk image file."""
+    """Unmounts the Ext2 filesystem so that reading and writing may no longer occur, and closes
+    access to the device."""
     if self._device.isMounted:
       self._device.unmount()
     self._isValid = False

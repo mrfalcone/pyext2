@@ -17,7 +17,7 @@ class Ext2File(object):
   @property
   def fsType(self):
     """Gets a string representing the filesystem type."""
-    return self._disk.fsType
+    return self._fs.fsType
 
   @property
   def name(self):
@@ -85,7 +85,7 @@ class Ext2File(object):
   @property
   def numBlocks(self):
     """Gets the number of data blocks used by the file on the filesystem."""
-    return int(ceil(float(self._inode.size) / self._disk.blockSize))
+    return int(ceil(float(self._inode.size) / self._fs.blockSize))
 
   @property
   def timeCreated(self):
@@ -108,9 +108,9 @@ class Ext2File(object):
     return self._parentDir
 
 
-  def __init__(self, dirEntry, inode, disk):
+  def __init__(self, dirEntry, inode, fs):
     """Constructs a new file object from the specified entry and inode."""
-    self._disk = disk
+    self._fs = fs
     self._inode = inode
     self._dirEntry = dirEntry
     self._name = ""

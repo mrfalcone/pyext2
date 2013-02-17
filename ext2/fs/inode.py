@@ -186,7 +186,7 @@ class _Inode(object):
     inodeBytes = pack("<2Hi4IH90x12s", (mode & 0xFFFF), (uid & 0xFFFF), 0, curTime, curTime, curTime, 0,
       (gid & 0xFFFF), osdBytes)
     
-    # write new inode bytes to disk image
+    # write new inode bytes to the device
     bgroupIndex = (inodeNum - 1) % superblock.numInodesPerGroup
     tableStartPos = bgdtEntry.inodeTableLocation * superblock.blockSize
     inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
@@ -367,7 +367,7 @@ class _Inode(object):
 
 
   def __getBidListAtBid(self, bid):
-    """Reads and returns the list of block ids at the specified block id on disk."""
+    """Reads and returns the list of block ids at the specified block id."""
     block = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
     return unpack_from("<{0}I".format(self._numIdsPerBlock), block)
   
