@@ -7,7 +7,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 import inspect
-from Queue import Queue
+from collections import deque
 from struct import pack, unpack
 from time import time
 from ..file.directory import _openRootDirectory
@@ -158,16 +158,16 @@ class Ext2Filesystem(object):
     report.numRegFiles = 0
     report.numSymlinks = 0
     report.numDirs = 1 # initialize with root directory
-    q = Queue()
-    q.put(self.rootDir)
-    while not q.empty():
-      d = q.get()
+    q = deque()
+    q.append(self.rootDir)
+    while len(q) > 0:
+      d = q.popleft()
       for f in d.files():
         if f.name == "." or f.name == "..":
           continue
         if f.isDir:
           report.numDirs += 1
-          q.put(f)
+          q.append(f)
         elif f.isRegular:
           report.numRegFiles += 1
         elif f.isSymlink:
@@ -250,15 +250,15 @@ class Ext2Filesystem(object):
     blocks = self.__getUsedBlocks()
     blocksAccessedBy = dict(zip(blocks, [None] * len(blocks)))
     
-    q = Queue()
-    q.put(self.rootDir)
-    while not q.empty():
-      d = q.get()
+    q = deque()
+    q.append(self.rootDir)
+    while len(q) > 0:
+      d = q.popleft()
       for f in d.files():
         if f.name == "." or f.name == "..":
           continue
         if f.isDir:
-          q.put(f)
+          q.append(f)
         
         # check inode references
         if not (f.isValid and f.inodeNum in inodesReachable):

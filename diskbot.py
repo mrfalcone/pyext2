@@ -11,7 +11,7 @@ import os
 from time import clock
 from time import sleep
 from threading import Thread
-from Queue import Queue
+from collections import deque
 from ext2 import *
 
 
@@ -194,20 +194,23 @@ def printShellHelp():
   print "{0}{1}".format("mkdir name".ljust(sp), "Makes a new directory with the specified name. Treats")
   print "{0}{1}".format("".ljust(sp), "everything following the command as a directory name.")
   print
+  print "{0}{1}".format("rm [-r] name".ljust(sp), "Removes the specified file or directory. The optional")
+  print "{0}{1}".format("".ljust(sp), "-r flag forces recursive deletion of directories.")
+  print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
   print
 
 
-def printDirectory(directory, recursive = False, showAll = False, verbose = False):
+def printDirectory(directory, recursive = False, showAll = False, listMode = False):
   """Prints the specified directory according to the given parameters."""
   if not directory.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
-  q = Queue()
-  q.put(directory)
-  while not q.empty():
-    d = q.get()
+  q = deque()
+  q.append(directory)
+  while len(q) > 0:
+    d = q.popleft()
     if recursive:
       print "{0}:".format(d.absolutePath)
     for f in d.files():
@@ -224,15 +227,37 @@ def printDirectory(directory, recursive = False, showAll = False, verbose = Fals
       if f.isDir and f.name != "." and f.name != "..":
         name = "{0}/".format(f.name)
         if recursive:
-          q.put(f)
+          q.append(f)
       
-      if verbose:
+      if listMode:
         print "{0} {1} {2} {3} {4} {5} {6} {7}".format(inode, f.modeStr, numLinks,
           uid, gid, size, modified, name)
       else:
         print name
     print
 
+
+
+
+def removeFile(parentDir, rmFile, recursive = False):
+  """Removes the specified file or directory from the given directory."""
+  
+  if recursive and rmFile.isDir:
+    
+    def getFilesToRemove(rmDir):
+      filesToRemove = deque()
+      for f in rmDir.files():
+        if f.name == "." or f.name == "..":
+          continue
+        if f.isDir:
+          filesToRemove.extend(getFilesToRemove(f))
+        filesToRemove.append((rmDir, f))
+      return filesToRemove
+    
+    for parent,f in getFilesToRemove(rmFile):
+      parent.removeFile(f)
+  
+  parentDir.removeFile(rmFile)
 
 
 
@@ -266,7 +291,7 @@ def shell(fs):
           else:
             cdDir = wd.getFileAt(path)
           if not cdDir.isDir:
-            raise Exception("Not a directory.")
+            raise FilesystemError("Not a directory.")
           wd = cdDir
         except FileNotFoundError:
           print "The specified directory does not exist."
@@ -282,15 +307,14 @@ def shell(fs):
       except FilesystemError as e:
         print "Error! {0}".format(e)
     elif cmd == "rm":
+      recursive = (args[0] == "-r")
+      if args[0][0] == "-":
+        args = args[1:]
       try:
         path = " ".join(args)
-        if path.startswith("/"):
-          rmFile = fs.rootDir.getFileAt(path[1:])
-          fs.rootDir.removeFile(rmFile)
-        else:
-          rmFile = wd.getFileAt(path)
-          wd.removeFile(rmFile)
-      except FileNotFoundError as e:
+        rmFile = wd.getFileAt(path)
+        removeFile(wd, rmFile, recursive)
+      except FileNotFoundError:
         print "The specified file or directory does not exist."
       except FilesystemError as e:
         print "Error! {0}".format(e)
