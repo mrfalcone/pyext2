@@ -26,7 +26,7 @@ class Ext2RegularFile(Ext2File):
 
 
   def blocks(self):
-    """Generates the next block in the file."""
+    """Generates a list of data blocks in the file."""
     for i in range(self.numBlocks):
       blockId = self._inode.lookupBlockId(i)
       if blockId == 0:
@@ -35,3 +35,24 @@ class Ext2RegularFile(Ext2File):
       if (i+1) * self._fs.blockSize > self.size:
         block = block[:(self.size % self._fs.blockSize)]
       yield block
+
+
+  def write(self, byteString):
+    """Writes the specified string of bytes to the end of the file."""
+    
+    written = 0
+    while written < len(byteString):
+      blockIndex = self._inode.size / self._fs.blockSize
+      byteIndex = self._inode.size % self._fs.blockSize
+      bid = self._inode.lookupBlockId(blockIndex)
+      if bid == 0:
+        bid = self._fs._allocateBlock()
+        self._inode.assignNextBlockId(bid)
+      
+      numBytesToWrite = min(len(byteString), self._fs.blockSize - byteIndex)
+      bytesToWrite = byteString[:numBytesToWrite]
+      byteString = byteString[numBytesToWrite:]
+      self._fs._writeToBlock(bid, byteIndex, bytesToWrite)
+      written += numBytesToWrite
+      self._inode.size += numBytesToWrite
+    

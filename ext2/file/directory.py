@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import re
 from struct import pack, unpack_from
+from time import time
 from ..error import *
 from .file import Ext2File
 from .symlink import Ext2Symlink
@@ -314,14 +315,32 @@ class Ext2Directory(Ext2File):
     self._inode.numLinks += 1
     inode = self._fs._readInode(entry._inodeNum)
     inode.numLinks += 1
+    inode.size += self._fs.blockSize
     self._fs._writeToBlock(inode.lookupBlockId(0), 0, defaultEntries)
     return Ext2Directory._openEntry(entry, self._fs)
 
 
 
-  def makeRegularFile(self, name):
+  def makeRegularFile(self, name, uid = None, gid = None, creationTime = None, modTime = None, accessTime = None):
     """Creates a new regular file in this directory and returns the new file object."""
-    pass
+    
+    if uid is None:
+      uid = self.uid
+    if gid is None:
+      gid = self.gid
+    
+    mode = 0
+    mode |= 0x8000 # set regular file
+    mode |= 0x0100 # user read
+    mode |= 0x0080 # user write
+    mode |= 0x0040 # user execute
+    mode |= 0x0020 # group read
+    mode |= 0x0008 # group execute
+    mode |= 0x0004 # others read
+    mode |= 0x0001 # others execute
+
+    entry = self.__makeNewEntry(name, mode, uid, gid, creationTime, modTime, accessTime)
+    return Ext2Directory._openEntry(entry, self._fs)
 
 
 
@@ -331,9 +350,17 @@ class Ext2Directory(Ext2File):
 
 
 
-  def __makeNewEntry(self, name, mode, uid, gid):
-    """Creates a new entry with the given parameters and returns the new object."""
 
+  def __makeNewEntry(self, name, mode, uid, gid, creationTime = None, modTime = None, accessTime = None):
+    """Creates a new entry with the given parameters and returns the new object."""
+    curTime = int(time())
+    if creationTime is None:
+      creationTime = curTime
+    if modTime is None:
+      modTime = curTime
+    if accessTime is None:
+      accessTime = curTime
+    
     if name.find("/") >= 0:
       parent = self.getFileAt(name[:name.rindex("/")])
       return parent.__makeNewEntry(name[name.rindex("/")+1:], mode, uid, gid)
@@ -346,10 +373,9 @@ class Ext2Directory(Ext2File):
       if entry.name == name:
         raise FilesystemError("An entry with that name already exists.")
     
-    inode = self._fs._allocateInode(mode, uid, gid)
+    inode = self._fs._allocateInode(mode, uid, gid, creationTime, modTime, accessTime)
     bid = self._fs._allocateBlock(True)
     inode.assignNextBlockId(bid)
-    inode.size += self._fs.blockSize
     
     entry = self._entryList.append(name, inode.number)
     inode.numLinks += 1

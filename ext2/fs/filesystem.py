@@ -158,7 +158,7 @@ class Ext2Filesystem(object):
     report.numRegFiles = 0
     report.numSymlinks = 0
     report.numDirs = 1 # initialize with root directory
-    q = deque()
+    q = deque([])
     q.append(self.rootDir)
     while len(q) > 0:
       d = q.popleft()
@@ -250,7 +250,7 @@ class Ext2Filesystem(object):
     blocks = self.__getUsedBlocks()
     blocksAccessedBy = dict(zip(blocks, [None] * len(blocks)))
     
-    q = deque()
+    q = deque([])
     q.append(self.rootDir)
     while len(q) > 0:
       d = q.popleft()
@@ -411,9 +411,9 @@ class Ext2Filesystem(object):
   
   
   
-  def _allocateInode(self, mode, uid, gid):
+  def _allocateInode(self, mode, uid, gid, creationTime, modTime, accessTime):
     """Allocates a new inode and returns the inode object."""
-    return _Inode.new(self._bgdt, self._superblock, self._device, mode, uid, gid)
+    return _Inode.new(self._bgdt, self._superblock, self._device, mode, uid, gid, creationTime, modTime, accessTime)
 
 
 

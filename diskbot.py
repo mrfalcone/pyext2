@@ -8,8 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import sys
 import os
-from time import clock
-from time import sleep
+from time import sleep, clock, ctime
 from threading import Thread
 from collections import deque
 from ext2 import *
@@ -207,7 +206,7 @@ def printDirectory(directory, recursive = False, showAll = False, listMode = Fal
   if not directory.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
-  q = deque()
+  q = deque([])
   q.append(directory)
   while len(q) > 0:
     d = q.popleft()
@@ -245,7 +244,7 @@ def removeFile(parentDir, rmFile, recursive = False):
   if recursive and rmFile.isDir:
     
     def getFilesToRemove(rmDir):
-      filesToRemove = deque()
+      filesToRemove = deque([])
       for f in rmDir.files():
         if f.name == "." or f.name == "..":
           continue
@@ -360,8 +359,9 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     if not srcFile.isRegular:
       raise Exception("The source path does not point to a regular file.")
     
+    srcPath = "{0}/{1}".format(destDirectory, srcFile.name)
     try:
-      outFile = open("{0}/{1}".format(destDirectory, srcFile.name), "wb")
+      outFile = open(srcPath, "wb")
     except:
       raise Exception("Cannot access specified destination directory.")
     
@@ -393,6 +393,9 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     
     mbps = float(readCount) / (1024*1024) / transferTime
     print "Read {0} bytes at {1:.2f} MB/sec.".format(readCount, mbps)
+    
+    os.utime(srcPath, (srcFile.timeAccessedEpoch, srcFile.timeModifiedEpoch))
+    
   print
 
 
@@ -402,18 +405,32 @@ def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
   if not fs.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
-  destFilename = "{0}/{1}".format(destDirectory, srcFilename[srcFilename.rfind("/")+1:])
+  destFilename = srcFilename[srcFilename.rfind("/")+1:]
   
   try:
     directory = fs.rootDir.getFileAt(destDirectory)
   except FileNotFoundError:
-    raise Exception("Destination directory does not exist.")
+    raise FilesystemError("Destination directory does not exist.")
+
+  uid = os.stat(srcFilename).st_uid
+  gid = os.stat(srcFilename).st_gid
+  creationTime = int(os.stat(srcFilename).st_birthtime)
+  modTime = int(os.stat(srcFilename).st_mtime)
+  accessTime = int(os.stat(srcFilename).st_atime)
+  newFile = directory.makeRegularFile(destFilename, uid, gid, creationTime, modTime, accessTime)
   
-  
-  
-  # print "Pushing {0} to {1}".format(srcFilename, destDirectory)
-  # TODO create new file, read source, write bytes to file
-  raise Exception("Not implemented.")
+  print "Pushing {0} to {1}".format(srcFilename, newFile.absolutePath)
+  inFile = open(srcFilename, "rb")
+  with inFile:
+    inFile.seek(0, 2)
+    length = inFile.tell()
+    inFile.seek(0)
+    read = 0
+    while read < length:
+      byteString = inFile.read(fs.blockSize)
+      newFile.write(byteString)
+      read += len(byteString)
+  print "Done."
   
 
 

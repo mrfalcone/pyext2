@@ -7,7 +7,6 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 from time import localtime, strftime
-from math import ceil
 from ..error import *
 
 
@@ -85,11 +84,26 @@ class Ext2File(object):
   @property
   def numBlocks(self):
     """Gets the number of data blocks used by the file on the filesystem."""
-    return int(ceil(float(self._inode.size) / self._fs.blockSize))
+    return self._inode.numDataBlocks
 
   @property
+  def timeCreatedEpoch(self):
+    """Gets the time and date the file was created as a UNIX epoch timestamp."""
+    return self._inode.timeCreated
+
+  @property
+  def timeModifiedEpoch(self):
+    """Gets the time and date the file was last modified as a UNIX epoch timestamp."""
+    return self._inode.timeModified
+
+  @property
+  def timeAccessedEpoch(self):
+    """Gets the time and date the file was last accessed as a UNIX epoch timestamp."""
+    return self._inode.timeAccessed
+  
+  @property
   def timeCreated(self):
-    """Gets the time and date the file was last created as a string."""
+    """Gets the time and date the file was created as a string."""
     return strftime("%b %d %I:%M %Y", localtime(self._inode.timeCreated))
 
   @property
@@ -194,7 +208,7 @@ class Ext2File(object):
     raise InvalidFileTypeError()
 
 
-  def makeRegularFile(self, absolutePath):
+  def makeRegularFile(self, name, uid = None, gid = None, creationTime = None, modTime = None, accessTime = None):
     """Creates a new regular file in this directory and returns the new file object."""
     raise InvalidFileTypeError()
 
@@ -205,6 +219,12 @@ class Ext2File(object):
   
   
   def blocks(self):
-    """Generates a list of block data in the file."""
+    """Generates a list of data blocks in the file."""
     raise InvalidFileTypeError()
+
+
+  def write(self, byteString):
+    """Writes the specified string of bytes to the end of the file."""
+    raise InvalidFileTypeError()
+  
   

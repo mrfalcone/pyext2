@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from struct import pack, unpack, unpack_from
 from time import time
+from math import ceil
 from ..error import FilesystemError
 
 
@@ -40,7 +41,10 @@ class _Inode(object):
     """Gets the list of block ids used by the inode."""
     return self._blocks
 
-
+  @property
+  def numDataBlocks(self):
+    """Gets the number of data blocks used by the inode."""
+    return self._numDataBlocks
 
   @property
   def mode(self):
@@ -136,8 +140,9 @@ class _Inode(object):
 
 
   @classmethod
-  def new(cls, bgdt, superblock, device, mode, uid, gid):
+  def new(cls, bgdt, superblock, device, mode, uid, gid, creationTime, modTime, accessTime):
     """Allocates the first free inode and returns the new inode object."""
+    
     bitmapStartPos = None
     bgroupNum = 0
     bgdtEntry = None
@@ -184,8 +189,7 @@ class _Inode(object):
     else:
       osdBytes = pack("<12x")
     
-    curTime = int(time())
-    inodeBytes = pack("<2Hi4IH90x12s", (mode & 0xFFFF), (uid & 0xFFFF), 0, curTime, curTime, curTime, 0,
+    inodeBytes = pack("<2Hi4IH90x12s", (mode & 0xFFFF), (uid & 0xFFFF), 0, accessTime, creationTime, modTime, 0,
       (gid & 0xFFFF), osdBytes)
     
     # write new inode bytes to the device
@@ -265,6 +269,10 @@ class _Inode(object):
       self._mode |= (osFields[0] << 16)
       self._uid |= (osFields[1] << 16)
       self._gid |= (osFields[2] << 16)
+
+    self._numDataBlocks = int(ceil(float(self.size) / self._superblock.blockSize))
+    if self._numDataBlocks == 0:
+      self._numDataBlocks = 1
 
     self._numIdsPerBlock = self._superblock.blockSize / 4
     self._numDirectBlocks = 12
