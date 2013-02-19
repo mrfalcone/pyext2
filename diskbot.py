@@ -412,25 +412,57 @@ def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
   except FileNotFoundError:
     raise FilesystemError("Destination directory does not exist.")
 
+  if not os.path.exists(srcFilename):
+    raise FilesystemError("Source file does not exist.")
+  
+  if not os.path.isfile(srcFilename):
+    raise FilesystemError("Source is not a file.")
+  
   uid = os.stat(srcFilename).st_uid
   gid = os.stat(srcFilename).st_gid
   creationTime = int(os.stat(srcFilename).st_birthtime)
   modTime = int(os.stat(srcFilename).st_mtime)
   accessTime = int(os.stat(srcFilename).st_atime)
   newFile = directory.makeRegularFile(destFilename, uid, gid, creationTime, modTime, accessTime)
-  
-  print "Pushing {0} to {1}".format(srcFilename, newFile.absolutePath)
+
+
   inFile = open(srcFilename, "rb")
-  with inFile:
-    inFile.seek(0, 2)
-    length = inFile.tell()
-    inFile.seek(0)
-    read = 0
-    while read < length:
-      byteString = inFile.read(fs.blockSize)
-      newFile.write(byteString)
-      read += len(byteString)
-  print "Done."
+  def __write(wait = None):
+    written = 0
+    with inFile:
+      inFile.seek(0, 2)
+      length = inFile.tell()
+      if wait:
+        wait.maxProgress = length
+        wait.start()
+      inFile.seek(0)
+      while written < length:
+        byteString = inFile.read(fs.blockSize)
+        newFile.write(byteString)
+        written += len(byteString)
+        if wait:
+          wait.progress += len(byteString)
+    return written
+
+
+
+  if showWaitIndicator:
+    wait = WaitIndicatorThread("Pushing {0} to {1}...".format(srcFilename, newFile.absolutePath))
+    try:
+      transferStart = clock()
+      written = __write(wait)
+      transferTime = clock() - transferStart
+    finally:
+      wait.done = True
+    wait.join()
+  else:
+    transferStart = clock()
+    written = __write()
+    transferTime = clock() - transferStart
+
+  mbps = float(written) / (1024*1024) / transferTime
+  print "Wrote {0} bytes at {1:.2f} MB/sec.".format(written, mbps)
+
   
 
 

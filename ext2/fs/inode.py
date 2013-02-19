@@ -140,22 +140,20 @@ class _Inode(object):
 
 
   @classmethod
-  def new(cls, bgdt, superblock, device, mode, uid, gid, creationTime, modTime, accessTime):
+  def new(cls, bgdt, superblock, fs, mode, uid, gid, creationTime, modTime, accessTime):
     """Allocates the first free inode and returns the new inode object."""
     
-    bitmapStartPos = None
     bgroupNum = 0
     bgdtEntry = None
     bitmapSize = superblock.numInodesPerGroup / 8
 
     for bgroupNum, bgdtEntry in enumerate(bgdt.entries):
       if bgdtEntry.numFreeInodes > 0:
-        bitmapStartPos = bgdtEntry.inodeBitmapLocation * superblock.blockSize
         break
-    if bitmapStartPos is None:
+    if bgdtEntry is None:
       raise FilesystemError("No free inodes.")
 
-    bitmapBytes = device.read(bitmapStartPos, bitmapSize)
+    bitmapBytes = fs._readBlock(bgdtEntry.inodeBitmapLocation, 0, bitmapSize)
     if len(bitmapBytes) < bitmapSize:
       raise FilesystemError("Invalid inode bitmap.")
 
@@ -168,7 +166,7 @@ class _Inode(object):
               inodeNum = (bgroupNum * superblock.numInodesPerGroup) + (byteIndex * 8) + i + 1
               if inodeNum < superblock.firstInode:
                 continue
-              device.write(bitmapStartPos + byteIndex, pack("B", byte | (1 << i)))
+              fs._writeToBlock(bgdtEntry.inodeBitmapLocation, byteIndex, pack("B", byte | (1 << i)))
               return inodeNum
       return None
 
@@ -194,45 +192,44 @@ class _Inode(object):
     
     # write new inode bytes to the device
     bgroupIndex = (inodeNum - 1) % superblock.numInodesPerGroup
-    tableStartPos = bgdtEntry.inodeTableLocation * superblock.blockSize
-    inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
-    device.write(inodeStartPos, inodeBytes)
+    tableBid = bgdtEntry.inodeTableLocation + (bgroupIndex * superblock.inodeSize) / fs.blockSize
+    inodeTableOffset = (bgroupIndex * superblock.inodeSize) % fs.blockSize
+    fs._writeToBlock(tableBid, inodeTableOffset, inodeBytes)
 
-    return cls(inodeStartPos, inodeBytes, True, inodeNum, bgdt, superblock, device)
+    return cls(tableBid, inodeTableOffset, inodeBytes, True, inodeNum, bgdtEntry, superblock, fs)
 
 
 
   @classmethod
-  def read(cls, inodeNum, bgdt, superblock, device):
+  def read(cls, inodeNum, bgdt, superblock, fs):
     """Reads the inode with the specified inode number and returns the new object."""
 
     bgroupNum = (inodeNum - 1) / superblock.numInodesPerGroup
     bgroupIndex = (inodeNum - 1) % superblock.numInodesPerGroup
     bgdtEntry = bgdt.entries[bgroupNum]
 
-    bitmapStartPos = bgdtEntry.inodeBitmapLocation * superblock.blockSize
     bitmapByteIndex = bgroupIndex / 8
+    tableBid = bgdtEntry.inodeTableLocation + (bgroupIndex * superblock.inodeSize) / fs.blockSize
+    inodeTableOffset = (bgroupIndex * superblock.inodeSize) % fs.blockSize
     
-    tableStartPos = bgdtEntry.inodeTableLocation * superblock.blockSize
-    inodeStartPos = tableStartPos + (bgroupIndex * superblock.inodeSize)
-    
-    bitmapByte = unpack("B", device.read(bitmapStartPos + bitmapByteIndex, 1))[0]
-    inodeBytes = device.read(inodeStartPos, superblock.inodeSize)
+    bitmapByte = unpack("B", fs._readBlock(bgdtEntry.inodeBitmapLocation, bitmapByteIndex, 1))[0]
+    inodeBytes = fs._readBlock(tableBid, inodeTableOffset, superblock.inodeSize)
     if len(inodeBytes) < superblock.inodeSize:
       raise FilesystemError("Invalid inode.")
 
     isUsed = (bitmapByte & (1 << (bgroupIndex % 8)) != 0)
-    return cls(inodeStartPos, inodeBytes, isUsed, inodeNum, bgdt, superblock, device)
+    return cls(tableBid, inodeTableOffset, inodeBytes, isUsed, inodeNum, bgdtEntry, superblock, fs)
 
 
 
 
-  def __init__(self, inodeStartPos, inodeBytes, isUsed, inodeNum, bgdt, superblock, device):
+  def __init__(self, tableBid, inodeTableOffset, inodeBytes, isUsed, inodeNum, bgdtEntry, superblock, fs):
     """Constructs a new inode from the given byte array."""
-    self._device = device
-    self._bgdt = bgdt
+    self._bgdtEntry = bgdtEntry
+    self._tableBid = tableBid
+    self._fs = fs
     self._superblock = superblock
-    self._inodeStartPos = inodeStartPos
+    self._inodeTableOffset = inodeTableOffset
     
     if superblock.revisionMajor == 0:
       fields = unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
@@ -281,23 +278,18 @@ class _Inode(object):
     self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
 
 
-
   def free(self):
     """Frees this inode so that it can be reused. All referenced blocks should be freed before calling."""
-    bgroupNum = (self.number - 1) / self._superblock.numInodesPerGroup
     indexInGroup = (self.number - 1) % self._superblock.numInodesPerGroup
     byteIndex = indexInGroup / 8
     bitIndex = indexInGroup % 8
     
-    bgdtEntry = self._bgdt.entries[bgroupNum]
-    bitmapStartPos = bgdtEntry.inodeBitmapLocation * self._superblock.blockSize
-    
-    byte = unpack("B", self._device.read(bitmapStartPos + byteIndex, 1))[0]
-    self._device.write(bitmapStartPos + byteIndex, pack("B", int(byte) & ~(1 << bitIndex)))
+    byte = unpack("B", self._fs._readBlock(self._bgdtEntry.inodeBitmapLocation, byteIndex, 1))[0]
+    self._fs._writeToBlock(self._bgdtEntry.inodeBitmapLocation, byteIndex, pack("B", int(byte) & ~(1 << bitIndex)))
     self._superblock.numFreeInodes += 1
-    bgdtEntry.numFreeInodes += 1
+    self._bgdtEntry.numFreeInodes += 1
     if (self.mode & 0x4000) != 0:
-      bgdtEntry.numInodesAsDirs -= 1
+      self._bgdtEntry.numInodesAsDirs -= 1
     self.timeDeleted = int(time())
     self._used = False
     
@@ -385,27 +377,89 @@ class _Inode(object):
   def assignNextBlockId(self, bid):
     """Assigns the given block id to this inode as the next block in use. Returns the index of
     the new block."""
-    for i in range(12):
-      if self._blocks[i] == 0:
-        self._blocks[i] = bid
-        self.__writeData(40+(i*4), pack("<I", bid))
-        return i
     
-    # TODO assign to indirect blocks
-    raise FilesystemError("Not implemented.")
+    if self._blocks[0] == 0:
+      index = 0
+    else:
+      index = self._numDataBlocks
+    
+    if index < self._numDirectBlocks:
+      self._blocks[index] = bid
+      self._numDataBlocks += 1
+      self.__writeData(40+(index*4), pack("<I", bid))
+      return index
+
+
+    elif index < self._numIndirectBlocks:
+      if self.blocks[12] == 0:
+        self.blocks[12] = self._fs._allocateBlock(True)
+        self.__writeData(88, pack("<I", self.blocks[12]))
+      self.__writeToBidListAtBid(self.blocks[12], index - self._numDirectBlocks, bid)
+      self._numDataBlocks += 1
+      return index
+
+
+    elif index < self._numDoublyIndirectBlocks:
+      if self.blocks[13] == 0:
+        self.blocks[13] = self._fs._allocateBlock(True)
+        self.__writeData(92, pack("<I", self.blocks[13]))
+      indirectList = self.__getBidListAtBid(self.blocks[13])
+      
+      indirectIndex = (index - self._numIndirectBlocks) / self._numIdsPerBlock
+      directIndex = (index - self._numIndirectBlocks) % self._numIdsPerBlock
+      
+      if indirectList[indirectIndex] == 0:
+        indirectList[indirectIndex] = self._fs._allocateBlock(True)
+        self.__writeToBidListAtBid(self.blocks[13], indirectIndex, indirectList[indirectIndex])
+      directList = self.__getBidListAtBid(indirectList[indirectIndex])
+      
+      directList[directIndex] = bid
+      self.__writeToBidListAtBid(indirectList[indirectIndex], directIndex, directList[directIndex])
+      self._numDataBlocks += 1
+      return index
+
+
+    elif index < self._numTreblyIndirectBlocks:
+      if self.blocks[14] == 0:
+        self.blocks[14] = self._fs._allocateBlock(True)
+        self.__writeData(96, pack("<I", self.blocks[14]))
+      doublyIndirectList = self.__getBidListAtBid(self.blocks[14])
+      
+      doublyIndirectIndex = (index - self._numDoublyIndirectBlocks) / (self._numIdsPerBlock ** 2)
+      indirectIndex = ((index - self._numDoublyIndirectBlocks) % (self._numIdsPerBlock ** 2)) / self._numIdsPerBlock
+      directIndex = ((index - self._numDoublyIndirectBlocks) % (self._numIdsPerBlock ** 2)) % self._numIdsPerBlock
+      
+      if doublyIndirectList[doublyIndirectIndex] == 0:
+        doublyIndirectList[doublyIndirectIndex] = self._fs._allocateBlock(True)
+        self.__writeToBidListAtBid(self.blocks[14], doublyIndirectIndex, doublyIndirectList[doublyIndirectIndex])
+      indirectList = self.__getBidListAtBid(doublyIndirectList[doublyIndirectIndex])
+      
+      if indirectList[indirectIndex] == 0:
+        indirectList[indirectIndex] = self._fs._allocateBlock(True)
+        self.__writeToBidListAtBid(doublyIndirectList[doublyIndirectIndex], indirectIndex, indirectList[indirectIndex])
+      directList = self.__getBidListAtBid(indirectList[indirectIndex])
+
+      directList[directIndex] = bid
+      self.__writeToBidListAtBid(indirectList[indirectIndex], directIndex, directList[directIndex])
+      self._numDataBlocks += 1
+      return index
+    
+    raise FilesystemError("No block space available.")
 
 
 
 
   def __getBidListAtBid(self, bid):
     """Reads and returns the list of block ids at the specified block id."""
-    block = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
-    return unpack_from("<{0}I".format(self._numIdsPerBlock), block)
-  
+    return list(unpack_from("<{0}I".format(self._numIdsPerBlock), self._fs._readBlock(bid)))
+
+
+  def __writeToBidListAtBid(self, listBid, listIndex, bidToWrite):
+    """Writes the specified block id to the list at the block id specified by listBid."""
+    self._fs._writeToBlock(listBid, listIndex * 4, pack("<I", bidToWrite))
   
   
   def __writeData(self, offset, byteString):
     """Writes the specified string of bytes at the specified offset (from the start of the inode bytes)
     on the device."""
-    self._device.write(self._inodeStartPos + offset, byteString)
-    self._superblock.timeLastWrite = int(time())
+    self._fs._writeToBlock(self._tableBid, self._inodeTableOffset + offset, byteString)

@@ -334,10 +334,12 @@ class Ext2Filesystem(object):
   
   
   
-  def _readBlock(self, bid):
-    """Reads the entire block specified by the given block id and returns a string of bytes."""
-    block = self._device.read(bid * self._superblock.blockSize, self._superblock.blockSize)
-    if len(block) < self._superblock.blockSize:
+  def _readBlock(self, bid, offset = 0, count = None):
+    """Reads from the block specified by the given block id and returns a string of bytes."""
+    if not count:
+      count = self._superblock.blockSize
+    block = self._device.read(bid * self._superblock.blockSize + offset, count)
+    if len(block) < count:
       raise FilesystemError("Invalid block.")
     return block
 
@@ -407,13 +409,13 @@ class Ext2Filesystem(object):
   
   def _readInode(self, inodeNum):
     """Reads the specified inode number and returns the inode object."""
-    return _Inode.read(inodeNum, self._bgdt, self._superblock, self._device)
+    return _Inode.read(inodeNum, self._bgdt, self._superblock, self)
   
   
   
   def _allocateInode(self, mode, uid, gid, creationTime, modTime, accessTime):
     """Allocates a new inode and returns the inode object."""
-    return _Inode.new(self._bgdt, self._superblock, self._device, mode, uid, gid, creationTime, modTime, accessTime)
+    return _Inode.new(self._bgdt, self._superblock, self, mode, uid, gid, creationTime, modTime, accessTime)
 
 
 
