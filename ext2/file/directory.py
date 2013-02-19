@@ -37,12 +37,11 @@ class _EntryList(object):
       offset = 0
       while offset < containingDir._fs.blockSize:
         entry = _Entry(i, blockId, offset, prevEntry, blockBytes[offset:], containingDir)
-        if entry.inodeNum == 0 or entry.size <= 0:
+        if entry.inodeNum == 0:
           break
         prevEntry = entry
         offset += entry.size
         self._entries.append(entry)
-  
   
   
   def __iter__(self):
@@ -91,6 +90,7 @@ class _EntryList(object):
     byteString = pack("<IHBB{0}s".format(nameLength), inodeNum, entrySize, nameLength, 0, name)
     self._containingDir._fs._writeToBlock(entryBlockId, entryOffset, byteString)
     newEntry = _Entry(entryBlockIndex, entryBlockId, entryOffset, None, byteString, self._containingDir)
+    newEntry.nextEntry = None
     newEntry.prevEntry = lastEntry
     lastEntry.nextEntry = newEntry
     self._entries.append(newEntry)
@@ -102,6 +102,8 @@ class _EntryList(object):
     self._entries.remove(entry)
     entry.inodeNum = 0
     entry.prevEntry.nextEntry = entry.nextEntry
+    if entry.nextEntry:
+      entry.nextEntry.prevEntry = entry.prevEntry
 
 
 
@@ -149,7 +151,10 @@ class _Entry(object):
   @nextEntry.setter
   def nextEntry(self, value):
     """Sets the next entry in the list."""
-    if not value is None:
+    if value is None:
+      if self.size + self._offset + 4 <= self._containingDir._fs.blockSize:
+        self.__writeData(self.size, pack("<I", 0))
+    else:
       if value._bindex == self._bindex:
         newSize = value._offset - self._offset
         if not newSize > 0:

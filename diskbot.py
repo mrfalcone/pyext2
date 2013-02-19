@@ -8,7 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 import sys
 import os
-from time import sleep, clock, ctime
+from time import sleep, clock
 from threading import Thread
 from collections import deque
 from ext2 import *
@@ -425,7 +425,6 @@ def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
   accessTime = int(os.stat(srcFilename).st_atime)
   newFile = directory.makeRegularFile(destFilename, uid, gid, creationTime, modTime, accessTime)
 
-
   inFile = open(srcFilename, "rb")
   def __write(wait = None):
     written = 0
@@ -443,8 +442,6 @@ def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
         if wait:
           wait.progress += len(byteString)
     return written
-
-
 
   if showWaitIndicator:
     wait = WaitIndicatorThread("Pushing {0} to {1}...".format(srcFilename, newFile.absolutePath))
