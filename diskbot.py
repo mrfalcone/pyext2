@@ -196,6 +196,12 @@ def printShellHelp():
   print "{0}{1}".format("rm [-r] name".ljust(sp), "Removes the specified file or directory. The optional")
   print "{0}{1}".format("".ljust(sp), "-r flag forces recursive deletion of directories.")
   print
+  print "{0}{1}".format("mv source dest".ljust(sp), "Moves the specified source file or directory to")
+  print "{0}{1}".format("".ljust(sp), "the destination file or directory.")
+  print
+  print "{0}{1}".format("cp source dest".ljust(sp), "Copies the specified source file or directory to")
+  print "{0}{1}".format("".ljust(sp), "the destination file or directory.")
+  print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
   print
@@ -260,6 +266,34 @@ def removeFile(parentDir, rmFile, recursive = False):
 
 
 
+def copyFile(fromFile, toDir, newFilename = None):
+  """Copies the specified file into the new directory."""
+
+  if newFilename:
+    name = newFilename
+  else:
+    name = fromFile.name
+  print "Copying {0} to directory {1}, with name {2}.".format(fromFile.absolutePath, toDir.absolutePath, name)
+  # TODO validate not . or .., not same name, source is not dir
+  raise FilesystemError("Not implemented.")
+
+
+
+
+
+def moveFile(fromFile, toDir, newFilename = None):
+  """Moves the specified file into the new directory."""
+  
+  if newFilename:
+    name = newFilename
+  else:
+    name = fromFile.name
+  print "Moving {0} to directory {1}, with name {2}.".format(fromFile.absolutePath, toDir.absolutePath, name)
+  # TODO validate not . or .., not same name
+  raise FilesystemError("Not implemented.")
+
+
+
 
 def shell(fs):
   """Enters a command-line shell with commands for operating on the specified filesystem."""
@@ -273,12 +307,16 @@ def shell(fs):
     args = inputline[1:]
     if cmd == "help":
       printShellHelp()
+      
     elif cmd == "exit":
       break
+      
     elif cmd == "pwd":
       print wd.absolutePath
+      
     elif cmd == "ls":
       printDirectory(wd, "-R" in args, "-a" in args, "-l" in args)
+      
     elif cmd == "cd":
       if len(args) == 0:
         print "No path specified."
@@ -296,6 +334,7 @@ def shell(fs):
           print "The specified directory does not exist."
         except FilesystemError as e:
           print "Error! {0}".format(e)
+          
     elif cmd == "mkdir":
       try:
         path = " ".join(args)
@@ -305,6 +344,7 @@ def shell(fs):
           wd.makeDirectory(path)
       except FilesystemError as e:
         print "Error! {0}".format(e)
+        
     elif cmd == "rm":
       if len(args) == 0:
         print "No path specified."
@@ -323,6 +363,51 @@ def shell(fs):
           print "The specified file or directory does not exist."
         except FilesystemError as e:
           print "Error! {0}".format(e)
+      
+    elif cmd == "mv" or cmd == "cp":
+      if len(args) != 2:
+        print "Invalid parameters."
+      else:
+        newName = None
+        fromFilename = args[0]
+        toDirname = args[1]
+        try:
+          if fromFilename.startswith("/"):
+            fromFile = fs.rootDir.getFileAt(fromFilename[1:])
+          else:
+            fromFile = wd.getFileAt(fromFilename)
+        except FileNotFoundError:
+          print "Source file does not exist."
+          continue
+        try:
+          if toDirname.startswith("/"):
+            try:
+              toDir = fs.rootDir.getFileAt(toDirname[1:])
+            except FileNotFoundError:
+              toDir = fs.rootDir.getFileAt(toDirname[1:toDirname.rfind("/")])
+              newName = toDirname[toDirname.rfind("/")+1:]
+          else:
+            try:
+              toDir = wd.getFileAt(toDirname)
+            except FileNotFoundError:
+              if "/" in toDirname:
+                toDir = wd.getFileAt(toDirname[:toDirname.rfind("/")])
+                newName = toDirname[toDirname.rfind("/")+1:]
+              else:
+                toDir = wd
+                newName = toDirname
+        except FileNotFoundError:
+          print "Destination directory does not exist."
+          continue
+        try:
+          if cmd == "mv":
+            moveFile(fromFile, toDir, newName)
+          elif cmd == "cp":
+            copyFile(fromFile, toDir, newName)
+        except FilesystemError as e:
+          print "Error! {0}".format(e)
+        
+      
     else:
       print "Command not recognized."
 
