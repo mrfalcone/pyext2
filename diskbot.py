@@ -306,17 +306,23 @@ def shell(fs):
       except FilesystemError as e:
         print "Error! {0}".format(e)
     elif cmd == "rm":
-      recursive = (args[0] == "-r")
-      if args[0][0] == "-":
-        args = args[1:]
-      try:
-        path = " ".join(args)
-        rmFile = wd.getFileAt(path)
-        removeFile(wd, rmFile, recursive)
-      except FileNotFoundError:
-        print "The specified file or directory does not exist."
-      except FilesystemError as e:
-        print "Error! {0}".format(e)
+      if len(args) == 0:
+        print "No path specified."
+      else:
+        recursive = (args[0] == "-r")
+        if args[0][0] == "-":
+          args = args[1:]
+        try:
+          path = " ".join(args)
+          if len(path) == 0:
+            print "No path specified."
+          else:
+            rmFile = wd.getFileAt(path)
+            removeFile(wd, rmFile, recursive)
+        except FileNotFoundError:
+          print "The specified file or directory does not exist."
+        except FilesystemError as e:
+          print "Error! {0}".format(e)
     else:
       print "Command not recognized."
 
