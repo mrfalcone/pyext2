@@ -1,6 +1,6 @@
 PyExt2
 ======
-An Ext2 filesystem interface written entirely in Python.
+An [Ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python.
 
 
 License
@@ -10,18 +10,20 @@ This software is released under the BSD license. See the file 'LICENSE' for deta
 
 Requirements
 ------------
-The ext2 module requires Python 2.6 or 2.7 and requires that the following modules are installed:
-
-* TODO
-
-In addition, the diskbot module requires the following modules to be installed:
-
-* TODO
+The ext2 module requires Python 2.6 or 2.7. Using the module requires access to a filesystem image formatted to the ext2 filesystem.
 
 
 Usage
 -----
-TODO
+To run the module, use the diskbot script:
+
+`diskbot ext2_image_file.img -s`
+
+will open a shell for interacting with the filesystem image.
+
+`diskbot -h`
+
+will display usage options for the script.
 
 
 Acknowledgement
