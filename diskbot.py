@@ -203,7 +203,8 @@ def printShellHelp():
   print "{0}{1}".format("".ljust(sp), "the destination file or directory.")
   print
   print "{0}{1}".format("ln [-s] source name".ljust(sp), "Creates a link to the source with the specified ")
-  print "{0}{1}".format("".ljust(sp), "name. If -s is specified, the new link is symbolic.")
+  print "{0}{1}".format("".ljust(sp), "name. If -s is specified, the new link is")
+  print "{0}{1}".format("".ljust(sp), "symbolic. Requires source to exist.")
   print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
@@ -326,7 +327,12 @@ def moveFile(fromFile, toDir, newFilename = None):
 def makeLink(sourceFile, destDir, name, isSymbolic):
   """Creates a link from the specified file to the specified directory with the specified name."""
   if isSymbolic:
-    destDir.makeSymbolicLink(name, sourceFile)
+    link = destDir.makeSymbolicLink(name, sourceFile)
+    
+    
+    f = link.getLinkedFile()
+    print f.absolutePath
+    print f.size
   else:
     destDir.makeHardLink(name, sourceFile)
 
@@ -335,6 +341,9 @@ def makeLink(sourceFile, destDir, name, isSymbolic):
 def shell(fs):
   """Enters a command-line shell with commands for operating on the specified filesystem."""
   wd = fs.rootDir
+  
+  # TODO follow symlinks
+  
   print "Entered shell mode. Type 'help' for shell commands."
   while True:
     inputline = raw_input(": '{0}' >> ".format(wd.absolutePath)).rstrip().split()
@@ -526,7 +535,7 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     filesToFetch.append(srcFilename)
   
   if len(filesToFetch) == 0:
-    raise Exception("No files exist in the specified directory.")
+    raise FilesystemError("No files exist in the specified directory.")
   
   if not os.path.exists(destDirectory):
     print "Making directory {0}".format(destDirectory)
@@ -536,16 +545,16 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     try:
       srcFile = fs.rootDir.getFileAt(srcFilename)
     except FileNotFoundError:
-      raise Exception("The source file cannot be found on the filesystem image.")
+      raise FilesystemError("The source file cannot be found on the filesystem image.")
     
     if not srcFile.isRegular:
-      raise Exception("The source path does not point to a regular file.")
+      raise FilesystemError("The source path does not point to a regular file.")
     
     srcPath = "{0}/{1}".format(destDirectory, srcFile.name)
     try:
       outFile = open(srcPath, "wb")
     except:
-      raise Exception("Cannot access specified destination directory.")
+      raise FilesystemError("Cannot access specified destination directory.")
     
     def __read(wait = None):
       readCount = 0

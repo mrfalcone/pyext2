@@ -76,10 +76,8 @@ class Ext2File(object):
 
   @property
   def size(self):
-    """Gets the size of the file in bytes, or 0 if it is not a regular file."""
-    if self.isRegular:
-      return self._inode.size
-    return 0
+    """Gets the size of the file in bytes."""
+    return self._inode.size
 
   @property
   def numBlocks(self):
@@ -222,7 +220,7 @@ class Ext2File(object):
     raise InvalidFileTypeError()
 
 
-  def makeSymbolicLink(self, name, linkedFile):
+  def makeSymbolicLink(self, name, linkedFile, uid = None, gid = None):
     """Creates a new symbolic link in this directory to the given file object and returns the new file object."""
     raise InvalidFileTypeError()
   
@@ -236,4 +234,8 @@ class Ext2File(object):
     """Writes the specified string of bytes to the end of the file."""
     raise InvalidFileTypeError()
   
+  
+  def getLinkedFile(self):
+    """Gets the file object linked to by this symbolic link."""
+    raise InvalidFileTypeError()
   

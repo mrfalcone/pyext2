@@ -267,15 +267,18 @@ class _Inode(object):
       self._uid |= (osFields[1] << 16)
       self._gid |= (osFields[2] << 16)
 
-    self._numDataBlocks = int(ceil(float(self.size) / self._superblock.blockSize))
-    if self._numDataBlocks == 0:
-      self._numDataBlocks = 1
-
     self._numIdsPerBlock = self._superblock.blockSize / 4
     self._numDirectBlocks = 12
     self._numIndirectBlocks = self._numDirectBlocks + self._numIdsPerBlock
     self._numDoublyIndirectBlocks = self._numIndirectBlocks + self._numIdsPerBlock ** 2
     self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
+
+    self._numDataBlocks = int(ceil(float(self.size) / self._superblock.blockSize))
+    if self._numDataBlocks == 0:
+      lastBid = self._blocks[0]
+      while lastBid != 0:
+        self._numDataBlocks += 1
+        self.lookupBlockId(self._numDataBlocks)
 
 
   def free(self):
@@ -373,15 +376,25 @@ class _Inode(object):
     raise FilesystemError("Block not found.")
   
   
+  
+  def assignStringToBlocks(self, path):
+    """Assigns the specified string to the block data."""
+    pathBytes = pack("<{0}s{1}x".format(len(path), 60 - len(path)), path)
+    self.__writeData(40, pathBytes)
+    self._blocks = list(unpack_from("<15I", pathBytes))
+
+
+  def getStringFromBlocks(self):
+    """Reads and returns block data as a string."""
+    pathBytes = self._fs._readBlock(self._tableBid, self._inodeTableOffset + 40, self._size)
+    return unpack_from("<{0}s".format(self._size), pathBytes)[0]
+
 
   def assignNextBlockId(self, bid):
     """Assigns the given block id to this inode as the next block in use. Returns the index of
     the new block."""
     
-    if self._blocks[0] == 0:
-      index = 0
-    else:
-      index = self._numDataBlocks
+    index = self._numDataBlocks
     
     if index < self._numDirectBlocks:
       self._blocks[index] = bid

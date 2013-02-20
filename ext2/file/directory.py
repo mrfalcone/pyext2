@@ -218,12 +218,12 @@ class Ext2Directory(Ext2File):
     else:
       inode = fs._readInode(2)
 
-    if (inode.mode & 0x4000) != 0:
+    if (inode.mode & 0x4000) == 0x4000:
       return Ext2Directory(dirEntry, inode, fs)
-    if (inode.mode & 0x8000) != 0:
-      return Ext2RegularFile(dirEntry, inode, fs)
-    if (inode.mode & 0xA000) != 0:
+    if (inode.mode & 0xA000) == 0xA000:
       return Ext2Symlink(dirEntry, inode, fs)
+    if (inode.mode & 0x8000) == 0x8000:
+      return Ext2RegularFile(dirEntry, inode, fs)
 
     return Ext2File(dirEntry, inode, fs)
 
@@ -290,8 +290,9 @@ class Ext2Directory(Ext2File):
       rmFile._inode.numLinks -= 1
     
     if rmFile._inode.numLinks <= 0:
-      for bid in rmFile._inode.usedBlocks():
-        self._fs._freeBlock(bid)
+      if rmFile.isSymlink and rmFile._inode.size > 60:
+        for bid in rmFile._inode.usedBlocks():
+          self._fs._freeBlock(bid)
       rmFile._inode.free()
 
 
@@ -332,7 +333,7 @@ class Ext2Directory(Ext2File):
     mode |= 0x0004 # others read
     mode |= 0x0001 # others execute
     
-    entry = self.__makeNewEntry(name, mode, uid, gid)
+    entry = self.__makeNewEntry(name, mode, uid, gid, True)
     defaultEntries = pack("<IHBB1s3xIHBB2s", entry.inodeNum, 12, 1, 0, ".", self._inode.number, 12, 2, 0, "..")
     self._inode.numLinks += 1
     inode = self._fs._readInode(entry._inodeNum)
@@ -364,7 +365,7 @@ class Ext2Directory(Ext2File):
       mode = permissions
     mode |= 0x8000 # set regular file
 
-    entry = self.__makeNewEntry(name, mode, uid, gid, creationTime, modTime, accessTime)
+    entry = self.__makeNewEntry(name, mode, uid, gid, True, creationTime, modTime, accessTime)
     return Ext2Directory._openEntry(entry, self._fs)
 
 
@@ -379,9 +380,41 @@ class Ext2Directory(Ext2File):
 
 
 
-  def makeSymbolicLink(self, name, linkedFile):
-    """Creates a new symbolic link in this directory to the given file object and returns the new file object."""
-    pass
+  def makeSymbolicLink(self, name, linkedFile, uid = None, gid = None):
+    """Creates a new symbolic link in this directory to the given file object using absolute path
+    and returns the new file object."""
+    if uid is None:
+      uid = self.uid
+    if gid is None:
+      gid = self.gid
+      
+    mode = 0
+    mode |= 0xA000 # set symbolic link
+    mode |= 0x0100 # user read
+    mode |= 0x0080 # user write
+    mode |= 0x0040 # user execute
+    mode |= 0x0020 # group read
+    mode |= 0x0008 # group execute
+    mode |= 0x0004 # others read
+    mode |= 0x0001 # others execute
+    
+    size = len(linkedFile.absolutePath)
+    if size <= 60:
+      entry = self.__makeNewEntry(name, mode, uid, gid, False)
+    else:
+      entry = self.__makeNewEntry(name, mode, uid, gid, True)
+    
+    inode = self._fs._readInode(entry._inodeNum)
+    inode.size = size
+
+    if size <= 60:
+      inode.assignStringToBlocks(linkedFile.absolutePath)
+    else:
+      # only support allocating single block for max symlink path length of the block size
+      self._fs._writeToBlock(inode.lookupBlockId(0), 0, pack("<{0}s".format(size), linkedFile.absolutePath))
+    
+    return Ext2Directory._openEntry(entry, self._fs)
+
 
 
   def __validateName(self, name):
@@ -402,7 +435,7 @@ class Ext2Directory(Ext2File):
 
 
 
-  def __makeNewEntry(self, name, mode, uid, gid, creationTime = None, modTime = None, accessTime = None):
+  def __makeNewEntry(self, name, mode, uid, gid, allocateBlock, creationTime = None, modTime = None, accessTime = None):
     """Creates a new entry with the given parameters and returns the new object."""
     curTime = int(time())
     if creationTime is None:
@@ -415,8 +448,9 @@ class Ext2Directory(Ext2File):
     self.__validateName(name)
     
     inode = self._fs._allocateInode(mode, uid, gid, creationTime, modTime, accessTime)
-    bid = self._fs._allocateBlock(True)
-    inode.assignNextBlockId(bid)
+    if allocateBlock:
+      bid = self._fs._allocateBlock(True)
+      inode.assignNextBlockId(bid)
     
     entry = self._entryList.append(name, inode.number)
     inode.numLinks += 1

@@ -6,6 +6,7 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
+from struct import unpack_from
 from ..error import FilesystemError
 from .file import Ext2File
 
@@ -23,3 +24,14 @@ class Ext2Symlink(Ext2File):
     super(Ext2Symlink, self).__init__(dirEntry, inode, fs)
     if (self._inode.mode & 0xA000) == 0:
       raise FilesystemError("Inode does not point to a symbolic link.")
+
+
+  def getLinkedFile(self):
+    """Gets the file object linked to by this symbolic link."""
+    if self._inode.size <= 60:
+      path = self._inode.getStringFromBlocks()
+    else:
+      pathBytes = self._fs._readBlock(self._inode.lookupBlockId(0), 0, self._inode.size)
+      path = unpack_from("<{0}s".format(self._inode.size), pathBytes)
+    
+    return self._fs.rootDir.getFileAt(path[1:])
