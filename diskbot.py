@@ -186,12 +186,17 @@ def printShellHelp():
   rsp = 4
   print "Supported commands:"
   print "{0}{1}".format("pwd".ljust(sp), "Prints the current working directory.")
-  print "{0}{1}".format("ls [-Ral] [directory]".ljust(sp), "Prints the entries in the specified directory, or")
+  print "{0}{1}".format("ls [-aFilRuU] [directory]".ljust(sp), "Prints the entries in the specified directory, or")
   print "{0}{1}".format("".ljust(sp), "the working directory if none is specified.")
   print "{0}{1}".format("".ljust(sp), "Optional flags:")
-  print "{0}{1}{2}".format("".ljust(sp), "-R".ljust(rsp), "Lists entries recursively.")
   print "{0}{1}{2}".format("".ljust(sp), "-a".ljust(rsp), "Lists hidden entries.")
-  print "{0}{1}{2}".format("".ljust(sp), "-l".ljust(rsp), "Detailed listing.")
+  print "{0}{1}{2}".format("".ljust(sp), "-F".ljust(rsp), "Display character after each entry")
+  print "{0}{1}{2}".format("".ljust(sp), "".ljust(rsp), "showing its type.")
+  print "{0}{1}{2}".format("".ljust(sp), "-i".ljust(rsp), "Show each entry's inode number.")
+  print "{0}{1}{2}".format("".ljust(sp), "-l".ljust(rsp), "Long list format.")
+  print "{0}{1}{2}".format("".ljust(sp), "-R".ljust(rsp), "Lists entries recursively.")
+  print "{0}{1}{2}".format("".ljust(sp), "-u".ljust(rsp), "Show last access time in long list format.")
+  print "{0}{1}{2}".format("".ljust(sp), "-U".ljust(rsp), "Show creation time in long list format.")
   print
   print "{0}{1}".format("cd directory".ljust(sp), "Changes to the specified directory.")
   print
@@ -215,7 +220,7 @@ def printShellHelp():
   print
 
 
-def printDirectory(directory, recursive = False, showAll = False, listMode = False):
+def printDirectory(directory, recursive, showAll, longList, showTypeCharacters, showInodeNums, useTimeAccess, useTimeCreation):
   """Prints the specified directory according to the given parameters."""
   if not directory.fsType == "EXT2":
     raise FilesystemNotSupportedError()
@@ -224,29 +229,68 @@ def printDirectory(directory, recursive = False, showAll = False, listMode = Fal
   q.append(directory)
   while len(q) > 0:
     d = q.popleft()
-    if recursive:
-      print "{0}:".format(d.absolutePath)
+    files = []
+    maxInodeLen = 0
+    maxSizeLen = 0
+    maxUidLen = 0
+    maxGidLen = 0
     for f in d.files():
       if not showAll and f.name.startswith("."):
         continue
-      
-      inode = "{0}".format(f.inodeNum).rjust(7)
-      numLinks = "{0}".format(f.numLinks).rjust(3)
-      uid = "{0}".format(f.uid).rjust(5)
-      gid = "{0}".format(f.gid).rjust(5)
-      size = "{0}".format(f.size).rjust(10)
-      modified = f.timeModified.ljust(17)
-      name = f.name
       if f.isDir and f.name != "." and f.name != "..":
-        name = "{0}/".format(f.name)
         if recursive:
           q.append(f)
+      files.append(f)
+      if longList:
+        maxInodeLen = max(len(str(f.inodeNum)), maxInodeLen)
+        maxSizeLen = max(len(str(f.size)), maxSizeLen)
+        maxUidLen = max(len(str(f.uid)), maxUidLen)
+        maxGidLen = max(len(str(f.gid)), maxGidLen)
+    
+    files = sorted(files, key=lambda file: file.name)
+    
+    if recursive:
+      print "{0}:".format(d.absolutePath)
+    
+    for f in files:
       
-      if listMode:
-        print "{0} {1} {2} {3} {4} {5} {6} {7}".format(inode, f.modeStr, numLinks,
-          uid, gid, size, modified, name)
-      else:
+      if not longList:
+        name = f.name
+        if showTypeCharacters:
+          if f.isDir:
+            name = "{0}/".format(name)
+          elif f.isSymlink:
+            name = "{0}@".format(name)
         print name
+        
+      else:
+        inodeStr = ""
+        name = f.name
+        if showTypeCharacters:
+          if f.isDir:
+            name = "{0}/".format(name)
+          elif f.isSymlink:
+            name = "{0}@".format(name)
+        
+        if f.isSymlink:
+          name = "{0} -> {1}".format(name, f.getLinkedPath())
+      
+        
+        if showInodeNums:
+          inodeStr = "{0} ".format(f.inodeNum).rjust(maxInodeLen + 1)
+
+        numLinks = "{0}".format(f.numLinks).rjust(2)
+        uid = "{0}".format(f.uid).rjust(maxUidLen)
+        gid = "{0}".format(f.gid).rjust(maxGidLen)
+        size = "{0}".format(f.size).rjust(maxSizeLen)
+        if useTimeAccess:
+          time = f.timeAccessed.ljust(17)
+        elif useTimeCreation:
+          time = f.timeCreated.ljust(17)
+        else:
+          time = f.timeModified.ljust(17)
+
+        print "{0}{1} {2} {3} {4} {5} {6} {7}".format(inodeStr, f.modeStr, numLinks, uid, gid, size, time, name)
     print
 
 
@@ -436,13 +480,15 @@ def shell(fs):
         
       elif cmd == "pwd":
         print workingDir.absolutePath
-        
+      
       elif cmd == "ls":
         if len(parameters) == 0:
-          printDirectory(workingDir, "R" in flags, "a" in flags, "l" in flags)
+          printDirectory(workingDir, "R" in flags, "a" in flags, "l" in flags, "F" in flags,
+                         "i" in flags, "u" in flags, "U" in flags)
         elif len(parameters) == 1:
           lsDir = __getFileObject(parameters[0], True)
-          printDirectory(lsDir, "R" in flags, "a" in flags, "l" in flags)
+          printDirectory(lsDir, "R" in flags, "a" in flags, "l" in flags, "F" in flags,
+                         "i" in flags, "u" in flags, "U" in flags)
         else:
           raise ShellError("Invalid parameters.")
         

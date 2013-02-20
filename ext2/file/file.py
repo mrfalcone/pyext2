@@ -102,17 +102,17 @@ class Ext2File(object):
   @property
   def timeCreated(self):
     """Gets the time and date the file was created as a string."""
-    return strftime("%b %d %I:%M %Y", localtime(self._inode.timeCreated))
+    return strftime("%b %d %H:%M %Y", localtime(self._inode.timeCreated))
 
   @property
   def timeAccessed(self):
     """Gets the time and date the file was last accessed as a string."""
-    return strftime("%b %d %I:%M %Y", localtime(self._inode.timeAccessed))
+    return strftime("%b %d %H:%M %Y", localtime(self._inode.timeAccessed))
 
   @property
   def timeModified(self):
     """Gets the time and date the file was last modified as a string."""
-    return strftime("%b %d %I:%M %Y", localtime(self._inode.timeModified))
+    return strftime("%b %d %H:%M %Y", localtime(self._inode.timeModified))
 
   @property
   def parentDir(self):
@@ -162,6 +162,8 @@ class Ext2File(object):
     self._modeStr = list("----------")
     if self.isDir:
       self._modeStr[0] = "d"
+    elif self.isSymlink:
+      self._modeStr[0] = "l"
     if (self._inode.mode & 0x0100) != 0:
       self._modeStr[1] = "r"
     if (self._inode.mode & 0x0080) != 0:
@@ -181,15 +183,6 @@ class Ext2File(object):
     if (self._inode.mode & 0x0001) != 0:
       self._modeStr[9] = "x"
     
-
-
-  def __str__(self):
-    """Gets a string representation of this file object."""
-    return "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}".format(self.inodeNum,
-      self.modeStr, self.numLinks, self.uid, self.gid, self.size, self.timeCreated,
-      self.timeAccessed, self.timeModified, self.name)
-
-
 
   def files(self):
     """Generates a list of files in the directory."""
