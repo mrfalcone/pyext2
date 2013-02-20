@@ -121,6 +121,11 @@ class Ext2File(object):
     """Gets this file object's parent directory. The root directory's parent is itself."""
     return self._parentDir
 
+  @property
+  def permissions(self):
+    """Gets this file object's permissions bitmap."""
+    return (self._inode.mode & 0x1FF) # ignore everything but permissions
+
 
   def __init__(self, dirEntry, inode, fs):
     """Constructs a new file object from the specified entry and inode."""

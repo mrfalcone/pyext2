@@ -266,31 +266,59 @@ def removeFile(parentDir, rmFile, recursive = False):
 
 
 
-def copyFile(fromFile, toDir, newFilename = None):
+def copyFile(fromFile, toDir, newFilename = None, showWaitIndicator = True):
   """Copies the specified file into the new directory."""
-
   if newFilename:
     name = newFilename
   else:
     name = fromFile.name
-  print "Copying {0} to directory {1}, with name {2}.".format(fromFile.absolutePath, toDir.absolutePath, name)
-  # TODO validate not . or .., not same name, source is not dir
-  raise FilesystemError("Not implemented.")
 
+  if fromFile.isDir:
+    raise FilesystemError("Cannot copy directory.")
 
+  uid = fromFile.uid
+  gid = fromFile.gid
+  creationTime = fromFile.timeCreatedEpoch
+  modTime = fromFile.timeModifiedEpoch
+  accessTime = fromFile.timeAccessedEpoch
+  permissions = fromFile.permissions
+  newFile = toDir.makeRegularFile(name, uid, gid, creationTime, modTime, accessTime, permissions)
+
+  def __copy(wait = None):
+    copied = 0
+    for block in fromFile.blocks():
+      newFile.write(block)
+      copied += len(block)
+      if wait:
+        wait.progress += len(block)
+    return copied
+
+  if showWaitIndicator:
+    wait = WaitIndicatorThread("Copying ...")
+    wait.maxProgress = fromFile.size
+    wait.start()
+    try:
+      transferStart = clock()
+      written = __copy(wait)
+      transferTime = clock() - transferStart
+    finally:
+      wait.done = True
+    wait.join()
+  else:
+    transferStart = clock()
+    written = __copy()
+    transferTime = clock() - transferStart
+
+  mbps = float(written) / (1024*1024) / transferTime
+  print "Copied {0} bytes at {1:.2f} MB/sec.".format(written, mbps)
+  
 
 
 
 def moveFile(fromFile, toDir, newFilename = None):
   """Moves the specified file into the new directory."""
+  fromFile.parentDir.moveFile(fromFile, toDir, newFilename)
   
-  if newFilename:
-    name = newFilename
-  else:
-    name = fromFile.name
-  print "Moving {0} to directory {1}, with name {2}.".format(fromFile.absolutePath, toDir.absolutePath, name)
-  # TODO validate not . or .., not same name
-  raise FilesystemError("Not implemented.")
 
 
 
@@ -338,10 +366,20 @@ def shell(fs):
     elif cmd == "mkdir":
       try:
         path = " ".join(args)
+        parentDir = wd
         if path.startswith("/"):
-          fs.rootDir.makeDirectory(path[1:])
+          path = path[1:]
+          parentDir = fs.rootDir
+        if "/" in path:
+          name = path[path.rindex("/")+1:]
+          parentDir = parentDir.getFileAt(path[:path.rindex("/")])
+          if parentDir.absolutePath == wd.absolutePath:
+            parentDir = wd
         else:
-          wd.makeDirectory(path)
+          name = path
+        parentDir.makeDirectory(name)
+      except InvalidFileTypeError:
+        print "Parent is not a directory."
       except FilesystemError as e:
         print "Error! {0}".format(e)
         
@@ -399,6 +437,8 @@ def shell(fs):
         except FileNotFoundError:
           print "Destination directory does not exist."
           continue
+        if toDir.absolutePath == wd.absolutePath:
+          toDir = wd
         try:
           if cmd == "mv":
             moveFile(fromFile, toDir, newName)

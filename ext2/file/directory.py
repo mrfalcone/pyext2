@@ -293,8 +293,36 @@ class Ext2Directory(Ext2File):
       for bid in rmFile._inode.usedBlocks():
         self._fs._freeBlock(bid)
       rmFile._inode.free()
+
+
+
+  def moveFile(self, fromFile, toDir, newFilename = None):
+    """Moves the specified file to the specified directory with the optional new name."""
+    if newFilename:
+      name = newFilename
+    else:
+      name = fromFile.name
+
+    if len(name.strip()) == 0:
+      raise FilesystemError("No name specified.")
     
+    if name == "." or name == "..":
+      raise FilesystemError("Invalid name specified.")
     
+    # make sure destination does not already exist
+    if not toDir.isDir:
+      raise FilesystemError("An entry with that name already exists.")
+    for entry in toDir._entryList:
+      if entry.name == name:
+        raise FilesystemError("An entry with that name already exists.")
+    
+    oldEntry = fromFile._dirEntry
+    oldParent = fromFile.parentDir
+    fromFile._dirEntry = toDir._entryList.append(name, fromFile.inodeNum)
+    fromFile._parentDir = toDir
+    oldParent._entryList.remove(oldEntry)
+
+
 
 
   def makeDirectory(self, name, uid = None, gid = None):
@@ -326,7 +354,7 @@ class Ext2Directory(Ext2File):
 
 
 
-  def makeRegularFile(self, name, uid = None, gid = None, creationTime = None, modTime = None, accessTime = None):
+  def makeRegularFile(self, name, uid = None, gid = None, creationTime = None, modTime = None, accessTime = None, permissions = None):
     """Creates a new regular file in this directory and returns the new file object."""
     
     if uid is None:
@@ -334,15 +362,18 @@ class Ext2Directory(Ext2File):
     if gid is None:
       gid = self.gid
     
-    mode = 0
+    if not permissions:
+      mode = 0
+      mode |= 0x0100 # user read
+      mode |= 0x0080 # user write
+      mode |= 0x0040 # user execute
+      mode |= 0x0020 # group read
+      mode |= 0x0008 # group execute
+      mode |= 0x0004 # others read
+      mode |= 0x0001 # others execute
+    else:
+      mode = permissions
     mode |= 0x8000 # set regular file
-    mode |= 0x0100 # user read
-    mode |= 0x0080 # user write
-    mode |= 0x0040 # user execute
-    mode |= 0x0020 # group read
-    mode |= 0x0008 # group execute
-    mode |= 0x0004 # others read
-    mode |= 0x0001 # others execute
 
     entry = self.__makeNewEntry(name, mode, uid, gid, creationTime, modTime, accessTime)
     return Ext2Directory._openEntry(entry, self._fs)
@@ -366,12 +397,14 @@ class Ext2Directory(Ext2File):
     if accessTime is None:
       accessTime = curTime
     
-    if name.find("/") >= 0:
-      parent = self.getFileAt(name[:name.rindex("/")])
-      return parent.__makeNewEntry(name[name.rindex("/")+1:], mode, uid, gid)
+    if "/" in name:
+      raise FilesystemError("Specified name is not local.")
     
     if len(name.strip()) == 0:
       raise FilesystemError("No name specified.")
+
+    if name == "." or name == "..":
+      raise FilesystemError("Invalid name specified.")
 
     # make sure destination does not already exist
     for entry in self._entryList:
