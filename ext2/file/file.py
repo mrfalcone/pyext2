@@ -233,9 +233,9 @@ class Ext2File(object):
   def write(self, byteString):
     """Writes the specified string of bytes to the end of the file."""
     raise InvalidFileTypeError()
-  
-  
-  def getLinkedFile(self):
-    """Gets the file object linked to by this symbolic link."""
-    raise InvalidFileTypeError()
+
+
+  def getLinkedPath(self):
+    """Gets the file path linked to by this symbolic link."""
+    
   

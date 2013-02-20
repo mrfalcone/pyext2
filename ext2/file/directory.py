@@ -236,7 +236,7 @@ class Ext2Directory(Ext2File):
 
 
 
-  def getFileAt(self, relativePath):
+  def getFileAt(self, relativePath, followSymlinks = False):
     """Looks up and returns the file specified by the relative path from this directory. Raises a
     FileNotFoundError if the file cannot be found."""
     
@@ -251,13 +251,19 @@ class Ext2Directory(Ext2File):
     curFile = self
     for curPart in pathParts:
       if curFile.isDir:
+        found = False
         for entry in curFile._entryList:
           if entry.name == curPart:
             curFile = Ext2Directory._openEntry(entry, self._fs)
+            while curFile.isSymlink and followSymlinks:
+              curFile = self._fs.rootDir.getFileAt(curFile.getLinkedPath()[1:])
+            found = True
             break
+        if not found:
+          raise FileNotFoundError()
     
-    if pathParts[-1] != "" and pathParts[-1] != curFile.name:
-      raise FileNotFoundError()
+    if curFile.absolutePath == self.absolutePath:
+      return self
     
     return curFile
 
@@ -303,8 +309,7 @@ class Ext2Directory(Ext2File):
       name = newFilename
     else:
       name = fromFile.name
-
-    self.__validateName(name)
+    toDir.__validateName(name)
     
     oldEntry = fromFile._dirEntry
     oldParent = fromFile.parentDir

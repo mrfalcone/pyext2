@@ -19,6 +19,11 @@ class FilesystemNotSupportedError(Exception):
   pass
 
 
+class ShellError(Exception):
+  """Thrown when the shell encounters an error."""
+  pass
+
+
 class WaitIndicatorThread(Thread):
   """Shows a wait indicator for the current action. If maxProgress is set then a
   percentage towards completion is shown instead."""
@@ -327,12 +332,7 @@ def moveFile(fromFile, toDir, newFilename = None):
 def makeLink(sourceFile, destDir, name, isSymbolic):
   """Creates a link from the specified file to the specified directory with the specified name."""
   if isSymbolic:
-    link = destDir.makeSymbolicLink(name, sourceFile)
-    
-    
-    f = link.getLinkedFile()
-    print f.absolutePath
-    print f.size
+    destDir.makeSymbolicLink(name, sourceFile)
   else:
     destDir.makeHardLink(name, sourceFile)
 
@@ -340,177 +340,190 @@ def makeLink(sourceFile, destDir, name, isSymbolic):
 
 def shell(fs):
   """Enters a command-line shell with commands for operating on the specified filesystem."""
-  wd = fs.rootDir
-  
-  # TODO follow symlinks
-  
+  workingDir = fs.rootDir
   print "Entered shell mode. Type 'help' for shell commands."
+  
+  
+  def __parseInput(inputline):
+    if inputline.endswith("\\") and not inputline.endswith("\\\\"):
+      raise ShellError("Invalid escape sequence.")
+    
+    parts = deque(inputline.split())
+    if len(parts) == 0:
+      raise ShellError("No command specified.")
+    cmd = parts.popleft()
+    flags = []
+    parameters = []
+    
+    while len(parts) > 0:
+      part = parts.popleft()
+      
+      if "\\" in part and not part.endswith("\\"):
+        raise ShellError("Invalid escape sequence.")
+      
+      if part.startswith("-") and len(parameters) == 0:
+        flags.extend(list(part[1:]))
+      
+      elif part.startswith("\"") or part.startswith("\'"):
+        quoteChar = part[0]
+        param = part[1:]
+        nextPart = part
+        while not nextPart.endswith(quoteChar) and len(parts) > 0:
+          nextPart = parts.popleft()
+          param = "{0} {1}".format(param, nextPart)
+        if not param.endswith(quoteChar):
+          raise ShellError("No closing quotation found.")
+        parameters.append(param[:-1])
+      
+      elif part.endswith("\\"):
+        param = ""
+        nextPart = part
+        while nextPart.endswith("\\") and len(parts) > 0:
+          param = "{0} {1}".format(param, nextPart[:-1])
+          nextPart = parts.popleft()
+        param = "{0} {1}".format(param, nextPart)
+        parameters.append(param.strip())
+      
+      else:
+        parameters.append(part)
+    
+    return (cmd, flags, parameters)
+  
+  
+  def __getFileObject(path, followSymlinks):
+    try:
+      if path.startswith("/"):
+        fileObject = fs.rootDir.getFileAt(path[1:], followSymlinks)
+      else:
+        fileObject = workingDir.getFileAt(path, followSymlinks)
+    except FileNotFoundError:
+      raise FilesystemError("{0} does not exist.".format(path))
+    if fileObject.absolutePath == workingDir.absolutePath:
+      fileObject = workingDir
+    return fileObject
+  
+  
+  def __parseNewPath(path):
+    parentDir = workingDir
+    if path.startswith("/"):
+      path = path[1:]
+      parentDir = fs.rootDir
+      if parentDir.absolutePath == workingDir.absolutePath:
+        parentDir = workingDir
+    if "/" in path:
+      name = path[path.rindex("/")+1:]
+      parentDir = __getFileObject(path[:path.rindex("/")], True)
+    else:
+      name = path
+    return (parentDir, name)
+  
+  
   while True:
-    inputline = raw_input(": '{0}' >> ".format(wd.absolutePath)).rstrip().split()
+    inputline = raw_input(": '{0}' >> ".format(workingDir.absolutePath)).rstrip()
     if len(inputline) == 0:
       continue
-    cmd = inputline[0]
-    args = inputline[1:]
-    if cmd == "help":
-      printShellHelp()
+    
+    try:
+      parsed = __parseInput(inputline)
+      cmd = parsed[0]
+      flags = parsed[1]
+      parameters = parsed[2]
       
-    elif cmd == "exit":
-      break
-      
-    elif cmd == "pwd":
-      print wd.absolutePath
-      
-    elif cmd == "ls":
-      printDirectory(wd, "-R" in args, "-a" in args, "-l" in args)
-      
-    elif cmd == "cd":
-      if len(args) == 0:
-        print "No path specified."
-      else:
-        path = " ".join(args)
-        try:
-          if path.startswith("/"):
-            cdDir = fs.rootDir.getFileAt(path[1:])
-          else:
-            cdDir = wd.getFileAt(path)
-          if not cdDir.isDir:
-            raise FilesystemError("Not a directory.")
-          wd = cdDir
-        except FileNotFoundError:
-          print "The specified directory does not exist."
-        except FilesystemError as e:
-          print "Error! {0}".format(e)
-          
-    elif cmd == "mkdir":
-      try:
-        path = " ".join(args)
-        parentDir = wd
-        if path.startswith("/"):
-          path = path[1:]
-          parentDir = fs.rootDir
-        if "/" in path:
-          name = path[path.rindex("/")+1:]
-          parentDir = parentDir.getFileAt(path[:path.rindex("/")])
-          if parentDir.absolutePath == wd.absolutePath:
-            parentDir = wd
-        else:
-          name = path
-        parentDir.makeDirectory(name)
-      except InvalidFileTypeError:
-        print "Parent is not a directory."
-      except FilesystemError as e:
-        print "Error! {0}".format(e)
+      if cmd == "help":
+        printShellHelp()
         
-    elif cmd == "rm":
-      if len(args) == 0:
-        print "No path specified."
-      else:
-        recursive = (args[0] == "-r")
-        if args[0][0] == "-":
-          args = args[1:]
-        try:
-          path = " ".join(args)
-          if len(path) == 0:
-            print "No path specified."
-          else:
-            rmFile = wd.getFileAt(path)
-            removeFile(wd, rmFile, recursive)
-        except FileNotFoundError:
-          print "The specified file or directory does not exist."
-        except FilesystemError as e:
-          print "Error! {0}".format(e)
+      elif cmd == "exit":
+        break
+        
+      elif cmd == "pwd":
+        print workingDir.absolutePath
+        
+      elif cmd == "ls":
+        printDirectory(workingDir, "R" in flags, "a" in flags, "l" in flags)
+        
+      elif cmd == "cd":
+        if len(parameters) != 1:
+          raise ShellError("Invalid parameters.")
+        cdDir = __getFileObject(parameters[0], True)
+        if not cdDir.isDir:
+          raise FilesystemError("Not a directory.")
+        workingDir = cdDir
       
-    elif cmd == "mv" or cmd == "cp":
-      if len(args) != 2:
-        print "Invalid parameters."
-      else:
-        newName = None
-        fromFilename = args[0]
-        toDirname = args[1]
+      
+      elif cmd == "mkdir":
+        if len(parameters) != 1:
+          raise ShellError("Invalid parameters.")
+        parsed = __parseNewPath(parameters[0])
+        parentDir = parsed[0]
+        name = parsed[1]
+        parentDir.makeDirectory(name)
+  
+          
+      elif cmd == "rm":
+        if len(parameters) != 1:
+          raise ShellError("Invalid parameters.")
+        parsed = __parseNewPath(parameters[0])
+        parentDir = parsed[0]
+        name = parsed[1]
+        rmFile = parentDir.getFileAt(name, False)
+        removeFile(parentDir, rmFile, "r" in flags)
+        
+        
+      elif cmd == "mv" or cmd == "cp":
+        if len(parameters) != 2:
+          raise ShellError("Invalid parameters.")
+        parsed = __parseNewPath(parameters[0])
+        parentDir = parsed[0]
+        name = parsed[1]
+        fromFile = parentDir.getFileAt(name, False)
+        parsed = __parseNewPath(parameters[1])
+        toDir = parsed[0]
+        name = parsed[1]
+        
         try:
-          if fromFilename.startswith("/"):
-            fromFile = fs.rootDir.getFileAt(fromFilename[1:])
-          else:
-            fromFile = wd.getFileAt(fromFilename)
-        except FileNotFoundError:
-          print "Source file does not exist."
-          continue
-        try:
-          if toDirname.startswith("/"):
+          nextDir = toDir.getFileAt(name)
+          if nextDir.isSymlink:
             try:
-              toDir = fs.rootDir.getFileAt(toDirname[1:])
+              while nextDir.isSymlink:
+                nextDir = fs.rootDir.getFileAt(nextDir.getLinkedPath()[1:])
             except FileNotFoundError:
-              toDir = fs.rootDir.getFileAt(toDirname[1:toDirname.rfind("/")])
-              newName = toDirname[toDirname.rfind("/")+1:]
-          else:
-            try:
-              toDir = wd.getFileAt(toDirname)
-            except FileNotFoundError:
-              if "/" in toDirname:
-                toDir = wd.getFileAt(toDirname[:toDirname.rfind("/")])
-                newName = toDirname[toDirname.rfind("/")+1:]
-              else:
-                toDir = wd
-                newName = toDirname
+              pass
+          if nextDir.isDir:
+            toDir = nextDir
+            name = ""
         except FileNotFoundError:
-          print "Destination directory does not exist."
-          continue
-        if toDir.absolutePath == wd.absolutePath:
-          toDir = wd
-        try:
-          if cmd == "mv":
-            moveFile(fromFile, toDir, newName)
-          elif cmd == "cp":
-            copyFile(fromFile, toDir, newName)
-        except FilesystemError as e:
-          print "Error! {0}".format(e)
-
-    elif cmd == "ln":
-      if len(args) < 2:
-        print "Invalid parameters."
+          pass
+        
+        if len(name) == 0:
+          name = None
+        if cmd == "mv":
+          moveFile(fromFile, toDir, name)
+        elif cmd == "cp":
+          copyFile(fromFile, toDir, name)
+      
+  
+      elif cmd == "ln":
+        if len(parameters) != 2:
+          raise ShellError("Invalid parameters.")
+        parsed = __parseNewPath(parameters[0])
+        parentDir = parsed[0]
+        name = parsed[1]
+        sourceFile = parentDir.getFileAt(name, False)
+        parsed = __parseNewPath(parameters[1])
+        destDir = parsed[0]
+        name = parsed[1]
+        if len(name) == 0:
+          raise ShellError("No name specified.")
+        makeLink(sourceFile, destDir, name, "s" in flags)
+        
       else:
-        if args[0][0] == "-":
-          if len(args) != 3:
-            print "Invalid parameters."
-          isSymbolic = args[0] == "-s"
-          sourceFilename = args[1]
-          name = args[2]
-        else:
-          isSymbolic = False
-          sourceFilename = args[0]
-          name = args[1]
-        try:
-          if sourceFilename.startswith("/"):
-            sourceFile = fs.rootDir.getFileAt(sourceFilename[1:])
-          else:
-            sourceFile = wd.getFileAt(sourceFilename)
-        except FileNotFoundError:
-          print "Source file does not exist."
-          continue
-        try:
-          if "/" in name:
-            if name.startswith("/") and "/" in name[1:]:
-              destDir = fs.rootDir.getFileAt(name[1:name.rfind("/")])
-              name = name[name.rfind("/")+1:]
-            else:
-              destDir = wd.getFileAt(name[:name.rfind("/")])
-              name = name[name.rfind("/")+1:]
-          else:
-            destDir = wd
-        except FileNotFoundError:
-          print "Destination directory does not exist."
-          continue
-        if destDir.absolutePath == wd.absolutePath:
-          destDir = wd
-        try:
-          makeLink(sourceFile, destDir, name, isSymbolic)
-        except FilesystemError as e:
-          print "Error! {0}".format(e)
-      
-      
-    else:
-      print "Command not recognized."
-
+        raise ShellError("Command not recognized.")
+    except ShellError as e:
+      print e
+      continue
+    except FilesystemError as e:
+      print e
+      continue
 
 
 

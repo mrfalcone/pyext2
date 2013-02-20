@@ -278,7 +278,7 @@ class _Inode(object):
       lastBid = self._blocks[0]
       while lastBid != 0:
         self._numDataBlocks += 1
-        self.lookupBlockId(self._numDataBlocks)
+        lastBid = self.lookupBlockId(self._numDataBlocks)
 
 
   def free(self):
