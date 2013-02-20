@@ -202,6 +202,9 @@ def printShellHelp():
   print "{0}{1}".format("cp source dest".ljust(sp), "Copies the specified source file or directory to")
   print "{0}{1}".format("".ljust(sp), "the destination file or directory.")
   print
+  print "{0}{1}".format("ln [-s] source name".ljust(sp), "Creates a link to the source with the specified ")
+  print "{0}{1}".format("".ljust(sp), "name. If -s is specified, the new link is symbolic.")
+  print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
   print
@@ -320,6 +323,12 @@ def moveFile(fromFile, toDir, newFilename = None):
   fromFile.parentDir.moveFile(fromFile, toDir, newFilename)
   
 
+def makeLink(sourceFile, destDir, name, isSymbolic):
+  """Creates a link from the specified file to the specified directory with the specified name."""
+  if isSymbolic:
+    destDir.makeSymbolicLink(name, sourceFile)
+  else:
+    destDir.makeHardLink(name, sourceFile)
 
 
 
@@ -446,7 +455,49 @@ def shell(fs):
             copyFile(fromFile, toDir, newName)
         except FilesystemError as e:
           print "Error! {0}".format(e)
-        
+
+    elif cmd == "ln":
+      if len(args) < 2:
+        print "Invalid parameters."
+      else:
+        if args[0][0] == "-":
+          if len(args) != 3:
+            print "Invalid parameters."
+          isSymbolic = args[0] == "-s"
+          sourceFilename = args[1]
+          name = args[2]
+        else:
+          isSymbolic = False
+          sourceFilename = args[0]
+          name = args[1]
+        try:
+          if sourceFilename.startswith("/"):
+            sourceFile = fs.rootDir.getFileAt(sourceFilename[1:])
+          else:
+            sourceFile = wd.getFileAt(sourceFilename)
+        except FileNotFoundError:
+          print "Source file does not exist."
+          continue
+        try:
+          if "/" in name:
+            if name.startswith("/") and "/" in name[1:]:
+              destDir = fs.rootDir.getFileAt(name[1:name.rfind("/")])
+              name = name[name.rfind("/")+1:]
+            else:
+              destDir = wd.getFileAt(name[:name.rfind("/")])
+              name = name[name.rfind("/")+1:]
+          else:
+            destDir = wd
+        except FileNotFoundError:
+          print "Destination directory does not exist."
+          continue
+        if destDir.absolutePath == wd.absolutePath:
+          destDir = wd
+        try:
+          makeLink(sourceFile, destDir, name, isSymbolic)
+        except FilesystemError as e:
+          print "Error! {0}".format(e)
+      
       
     else:
       print "Command not recognized."
@@ -531,8 +582,8 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
 
 
 
-def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
-  """Pushes the specified local file to the specified destination directory on the filesystem image."""
+def putFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
+  """Puts the specified local file to the specified destination directory on the filesystem image."""
   if not fs.fsType == "EXT2":
     raise FilesystemNotSupportedError()
   
@@ -575,7 +626,7 @@ def pushFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     return written
 
   if showWaitIndicator:
-    wait = WaitIndicatorThread("Pushing {0} to {1}...".format(srcFilename, newFile.absolutePath))
+    wait = WaitIndicatorThread("Putting {0} at {1}...".format(srcFilename, newFile.absolutePath))
     try:
       transferStart = clock()
       written = __write(wait)
@@ -611,7 +662,7 @@ def printHelp():
   print "{0}{1}".format("".ljust(sp), "into the optional host directory. If no directory")
   print "{0}{1}".format("".ljust(sp), "is specified, defaults to the current directory.")
   print
-  print "{0}{1}".format("-p hostfile destpath".ljust(sp), "Pushes the specified host file into the specified")
+  print "{0}{1}".format("-p hostfile destpath".ljust(sp), "Puts the specified host file into the specified")
   print "{0}{1}".format("".ljust(sp), "directory on the filesystem.")
   print
   print "{0}{1}".format("-i".ljust(sp), "Prints general information about the filesystem.")
@@ -657,12 +708,12 @@ def run(args, fs):
       srcNameIndex = args.index("-p") + 1
       destNameIndex = srcNameIndex + 1
       if len(args) <= srcNameIndex:
-        print "Error! No source file specified to push."
+        print "Error! No source file specified."
       elif len(args) <= destNameIndex:
-        print "Error! No destination directory specified for pushed file."
+        print "Error! No destination directory specified."
       else:
         try:
-          pushFile(fs, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
+          putFile(fs, args[srcNameIndex], args[destNameIndex], not suppressIndicator)
         except FilesystemError as e:
           print "Error! {0}".format(e)
     
@@ -670,7 +721,7 @@ def run(args, fs):
       srcNameIndex = args.index("-f") + 1
       destNameIndex = srcNameIndex + 1
       if len(args) <= srcNameIndex:
-        print "Error! No source file specified to fetch."
+        print "Error! No source file specified."
       else:
         if len(args) <= destNameIndex:
           destDirectory = "."

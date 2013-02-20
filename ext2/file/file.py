@@ -208,9 +208,8 @@ class Ext2File(object):
     directory, an error is raised."""
     raise InvalidFileTypeError()
 
-  def makeDirectory(self, absolutePath):
+  def makeDirectory(self, name, uid = None, gid = None):
     """Creates a new directory in this directory and returns the new file object."""
-    raise InvalidFileTypeError()
 
 
   def makeRegularFile(self, name, uid = None, gid = None, creationTime = None, modTime = None, accessTime = None):
@@ -218,8 +217,13 @@ class Ext2File(object):
     raise InvalidFileTypeError()
 
 
-  def makeLink(self, absolutePath, linkedFile, isSymbolic):
-    """Creates a new link in this directory to the given file object and returns the new file object."""
+  def makeHardLink(self, name, linkedFile):
+    """Creates a new hard link in this directory to the given file object and returns the new file object."""
+    raise InvalidFileTypeError()
+
+
+  def makeSymbolicLink(self, name, linkedFile):
+    """Creates a new symbolic link in this directory to the given file object and returns the new file object."""
     raise InvalidFileTypeError()
   
   

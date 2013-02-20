@@ -303,18 +303,7 @@ class Ext2Directory(Ext2File):
     else:
       name = fromFile.name
 
-    if len(name.strip()) == 0:
-      raise FilesystemError("No name specified.")
-    
-    if name == "." or name == "..":
-      raise FilesystemError("Invalid name specified.")
-    
-    # make sure destination does not already exist
-    if not toDir.isDir:
-      raise FilesystemError("An entry with that name already exists.")
-    for entry in toDir._entryList:
-      if entry.name == name:
-        raise FilesystemError("An entry with that name already exists.")
+    self.__validateName(name)
     
     oldEntry = fromFile._dirEntry
     oldParent = fromFile.parentDir
@@ -380,23 +369,23 @@ class Ext2Directory(Ext2File):
 
 
 
-  def makeLink(self, name, linkedFile, isSymbolic):
-    """Creates a new link in this directory to the given file object and returns the new file object."""
+  def makeHardLink(self, name, linkedFile):
+    """Creates a new hard link in this directory to the given file object and returns the new file object."""
+    self.__validateName(name)
+    inode = linkedFile._inode
+    entry = self._entryList.append(name, inode.number)
+    inode.numLinks += 1
+    return Ext2Directory._openEntry(entry, self._fs)
+
+
+
+  def makeSymbolicLink(self, name, linkedFile):
+    """Creates a new symbolic link in this directory to the given file object and returns the new file object."""
     pass
 
 
-
-
-  def __makeNewEntry(self, name, mode, uid, gid, creationTime = None, modTime = None, accessTime = None):
-    """Creates a new entry with the given parameters and returns the new object."""
-    curTime = int(time())
-    if creationTime is None:
-      creationTime = curTime
-    if modTime is None:
-      modTime = curTime
-    if accessTime is None:
-      accessTime = curTime
-    
+  def __validateName(self, name):
+    """Validates the specified name and returns successfully if valid."""
     if "/" in name:
       raise FilesystemError("Specified name is not local.")
     
@@ -410,6 +399,20 @@ class Ext2Directory(Ext2File):
     for entry in self._entryList:
       if entry.name == name:
         raise FilesystemError("An entry with that name already exists.")
+
+
+
+  def __makeNewEntry(self, name, mode, uid, gid, creationTime = None, modTime = None, accessTime = None):
+    """Creates a new entry with the given parameters and returns the new object."""
+    curTime = int(time())
+    if creationTime is None:
+      creationTime = curTime
+    if modTime is None:
+      modTime = curTime
+    if accessTime is None:
+      accessTime = curTime
+    
+    self.__validateName(name)
     
     inode = self._fs._allocateInode(mode, uid, gid, creationTime, modTime, accessTime)
     bid = self._fs._allocateBlock(True)

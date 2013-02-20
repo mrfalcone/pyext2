@@ -2,14 +2,15 @@ PyExt2
 ======
 An [Ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python.
 
-Supports the following features with variable block sizes:
+Supports the following functions with variable block sizes:
 
-* Read files
-* Write files
-* Make directories
-* Remove files and directories
-* Move/rename files and directories
-* Copy files within filesystem
+* Reading files
+* Writing files
+* Making directories
+* Removing files and directories
+* Moving/renaming files and directories
+* Copying files within filesystem
+* Creating hard and symbolic links
 
 
 License
@@ -19,7 +20,7 @@ This software is released under the BSD license. See the file 'LICENSE' for deta
 
 Requirements
 ------------
-The ext2 module requires Python 2.6 or 2.7. Using the module requires access to a filesystem image formatted to the ext2 filesystem.
+Requires Python 2.6 or 2.7. Using the module requires access to a filesystem image formatted to the ext2 filesystem.
 
 
 Usage
@@ -37,4 +38,4 @@ will display usage options for the script.
 
 Acknowledgement
 ---------------
-Special thanks to Dave Poirier for making available the [ext2-doc project](http://www.nongnu.org/ext2-doc/). It has been an enormous help in developing this project.
+Thanks to Dave Poirier for making available the [ext2-doc project](http://www.nongnu.org/ext2-doc/). It has been an enormous help in developing this project.
