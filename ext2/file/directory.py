@@ -296,7 +296,7 @@ class Ext2Directory(Ext2File):
       rmFile._inode.numLinks -= 1
     
     if rmFile._inode.numLinks <= 0:
-      if rmFile.isSymlink and rmFile._inode.size > 60:
+      if not rmFile.isSymlink or rmFile._inode.size > 60:
         for bid in rmFile._inode.usedBlocks():
           self._fs._freeBlock(bid)
       rmFile._inode.free()

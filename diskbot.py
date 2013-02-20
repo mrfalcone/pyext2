@@ -186,17 +186,16 @@ def printShellHelp():
   rsp = 4
   print "Supported commands:"
   print "{0}{1}".format("pwd".ljust(sp), "Prints the current working directory.")
-  print "{0}{1}".format("ls [-R,-a,-l]".ljust(sp), "Prints the entries in the working directory.")
+  print "{0}{1}".format("ls [-Ral] [directory]".ljust(sp), "Prints the entries in the specified directory, or")
+  print "{0}{1}".format("".ljust(sp), "the working directory if none is specified.")
   print "{0}{1}".format("".ljust(sp), "Optional flags:")
   print "{0}{1}{2}".format("".ljust(sp), "-R".ljust(rsp), "Lists entries recursively.")
   print "{0}{1}{2}".format("".ljust(sp), "-a".ljust(rsp), "Lists hidden entries.")
   print "{0}{1}{2}".format("".ljust(sp), "-l".ljust(rsp), "Detailed listing.")
   print
-  print "{0}{1}".format("cd directory".ljust(sp), "Changes to the specified directory. Treats everything")
-  print "{0}{1}".format("".ljust(sp), "following the command as a directory name.")
+  print "{0}{1}".format("cd directory".ljust(sp), "Changes to the specified directory.")
   print
-  print "{0}{1}".format("mkdir name".ljust(sp), "Makes a new directory with the specified name. Treats")
-  print "{0}{1}".format("".ljust(sp), "everything following the command as a directory name.")
+  print "{0}{1}".format("mkdir name".ljust(sp), "Makes a new directory with the specified name")
   print
   print "{0}{1}".format("rm [-r] name".ljust(sp), "Removes the specified file or directory. The optional")
   print "{0}{1}".format("".ljust(sp), "-r flag forces recursive deletion of directories.")
@@ -439,7 +438,13 @@ def shell(fs):
         print workingDir.absolutePath
         
       elif cmd == "ls":
-        printDirectory(workingDir, "R" in flags, "a" in flags, "l" in flags)
+        if len(parameters) == 0:
+          printDirectory(workingDir, "R" in flags, "a" in flags, "l" in flags)
+        elif len(parameters) == 1:
+          lsDir = __getFileObject(parameters[0], True)
+          printDirectory(lsDir, "R" in flags, "a" in flags, "l" in flags)
+        else:
+          raise ShellError("Invalid parameters.")
         
       elif cmd == "cd":
         if len(parameters) != 1:
