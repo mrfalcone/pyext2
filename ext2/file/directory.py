@@ -424,14 +424,15 @@ class Ext2Directory(Ext2File):
 
   def __validateName(self, name):
     """Validates the specified name and returns successfully if valid."""
-    if "/" in name:
-      raise FilesystemError("Specified name is not local.")
     
     if len(name.strip()) == 0:
       raise FilesystemError("No name specified.")
 
     if name == "." or name == "..":
       raise FilesystemError("Invalid name specified.")
+
+    if "/" in name or "\0" in name:
+      raise FilesystemError("Name contains invalid characters.")
 
     # make sure destination does not already exist
     for entry in self._entryList:
