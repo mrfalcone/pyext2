@@ -267,13 +267,14 @@ class Ext2Filesystem(object):
           inodesReachable[f.inodeNum] = True
         
         # check block references
-        for bid in f._inode.usedBlocks():
-          if not bid in blocksAccessedBy:
-            report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
-          elif blocksAccessedBy[bid]:
-            report.messages.append("Block id {0} is being referenced by both {1} and {2}.".format(bid, blocksAccessedBy[bid], f.absolutePath))
-          else:
-            blocksAccessedBy[bid] = f.absolutePath
+        if not f.isSymlink or f.size > 60:
+          for bid in f._inode.usedBlocks():
+            if not bid in blocksAccessedBy:
+              report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
+            elif blocksAccessedBy[bid]:
+              report.messages.append("Block id {0} is being referenced by both {1} and {2}.".format(bid, blocksAccessedBy[bid], f.absolutePath))
+            else:
+              blocksAccessedBy[bid] = f.absolutePath
     
     for inodeNum in inodesReachable:
       if not inodesReachable[inodeNum]:
