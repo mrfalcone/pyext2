@@ -258,7 +258,11 @@ class Ext2Directory(Ext2File):
           if entry.name == curPart:
             curFile = Ext2Directory._openEntry(entry, self._fs)
             while curFile.isSymlink and followSymlinks:
-              curFile = self._fs.rootDir.getFileAt(curFile.getLinkedPath()[1:])
+              linkedPath = curFile.getLinkedPath()
+              if linkedPath.startswith("/"):
+                curFile = self._fs.rootDir.getFileAt(linkedPath[1:])
+              else:
+                curFile = curFile.parentDir.getFileAt(linkedPath)
             found = True
             break
         if not found:
@@ -387,8 +391,8 @@ class Ext2Directory(Ext2File):
 
 
 
-  def makeSymbolicLink(self, name, linkedFile, uid = None, gid = None):
-    """Creates a new symbolic link in this directory to the given file object using absolute path
+  def makeSymbolicLink(self, name, linkedPath, uid = None, gid = None):
+    """Creates a new symbolic link in this directory to the specified path
     and returns the new file object."""
     if uid is None:
       uid = self.uid
@@ -405,7 +409,7 @@ class Ext2Directory(Ext2File):
     mode |= 0x0004 # others read
     mode |= 0x0001 # others execute
     
-    size = len(linkedFile.absolutePath)
+    size = len(linkedPath)
     if size <= 60:
       entry = self.__makeNewEntry(name, mode, uid, gid, False)
     else:
@@ -415,10 +419,10 @@ class Ext2Directory(Ext2File):
     inode.size = size
 
     if size <= 60:
-      inode.assignStringToBlocks(linkedFile.absolutePath)
+      inode.assignStringToBlocks(linkedPath)
     else:
       # only support allocating single block for max symlink path length of the block size
-      self._fs._writeToBlock(inode.lookupBlockId(0), 0, pack("<{0}s".format(size), linkedFile.absolutePath))
+      self._fs._writeToBlock(inode.lookupBlockId(0), 0, pack("<{0}s".format(size), linkedPath))
     
     return Ext2Directory._openEntry(entry, self._fs)
 

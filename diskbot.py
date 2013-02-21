@@ -213,7 +213,7 @@ def printShellHelp():
   print
   print "{0}{1}".format("ln [-s] source name".ljust(sp), "Creates a link to the source with the specified ")
   print "{0}{1}".format("".ljust(sp), "name. If -s is specified, the new link is")
-  print "{0}{1}".format("".ljust(sp), "symbolic. Requires source to exist.")
+  print "{0}{1}".format("".ljust(sp), "symbolic. Hard links require source to exist.")
   print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
@@ -372,12 +372,8 @@ def moveFile(fromFile, toDir, newFilename = None):
   fromFile.parentDir.moveFile(fromFile, toDir, newFilename)
   
 
-def makeLink(sourceFile, destDir, name, isSymbolic):
-  """Creates a link from the specified file to the specified directory with the specified name."""
-  if isSymbolic:
-    destDir.makeSymbolicLink(name, sourceFile)
-  else:
-    destDir.makeHardLink(name, sourceFile)
+
+
 
 
 def getFileObject(fs, directory, path, followSymlinks):
@@ -560,16 +556,19 @@ def shell(fs):
       elif cmd == "ln":
         if len(parameters) != 2:
           raise ShellError("Invalid parameters.")
-        parsed = parseNewPath(fs, workingDir, parameters[0])
-        parentDir = parsed[0]
-        name = parsed[1]
-        sourceFile = parentDir.getFileAt(name, False)
         parsed = parseNewPath(fs, workingDir, parameters[1])
         destDir = parsed[0]
         name = parsed[1]
         if len(name) == 0:
           raise ShellError("No name specified.")
-        makeLink(sourceFile, destDir, name, "s" in flags)
+        if "s" in flags:
+          destDir.makeSymbolicLink(name, parameters[0])
+        else:
+          parsed = parseNewPath(fs, workingDir, parameters[0])
+          parentDir = parsed[0]
+          name = parsed[1]
+          sourceFile = parentDir.getFileAt(name, False)
+          destDir.makeHardLink(name, sourceFile)
         
       else:
         raise ShellError("Command not recognized.")
@@ -832,10 +831,6 @@ def main():
       fs = Ext2Filesystem.fromImageFile(filename)
       with fs:
         run(args, fs)
-    except FilesystemError as e:
-      print "Error! {0}".format(e)
-      print
-      quit()
     except IOError:
       print "Could not read image file."
 
