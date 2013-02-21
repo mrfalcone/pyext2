@@ -681,9 +681,12 @@ def putFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
   
   uid = os.stat(srcFilename).st_uid
   gid = os.stat(srcFilename).st_gid
-  creationTime = int(os.stat(srcFilename).st_birthtime)
   modTime = int(os.stat(srcFilename).st_mtime)
   accessTime = int(os.stat(srcFilename).st_atime)
+  try:
+    creationTime = int(os.stat(srcFilename).st_birthtime)
+  except AttributeError:
+    creationTime = modTime
   newFile = directory.makeRegularFile(destFilename, uid, gid, creationTime, modTime, accessTime)
 
   inFile = open(srcFilename, "rb")
