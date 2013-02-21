@@ -576,6 +576,9 @@ def shell(fs):
     except ShellError as e:
       print e
       continue
+    except FileNotFoundError:
+      print "File not found."
+      continue
     except FilesystemError as e:
       print e
       continue
