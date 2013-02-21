@@ -55,6 +55,11 @@ class Ext2File(object):
     return False
 
   @property
+  def isExecutable(self):
+    """Gets whether the file object is executable."""
+    return (self._inode.mode & 0x49) != 0 # return true if any executable flag is set
+
+  @property
   def modeStr(self):
     """Gets a string representing the file object's mode."""
     return "".join(self._modeStr)

@@ -261,6 +261,8 @@ def printDirectory(directory, recursive, showAll, longList, showTypeCharacters, 
             name = "{0}/".format(name)
           elif f.isSymlink:
             name = "{0}@".format(name)
+          elif f.isRegular and f.isExecutable:
+            name = "{0}*".format(name)
         print name
         
       else:
@@ -271,6 +273,8 @@ def printDirectory(directory, recursive, showAll, longList, showTypeCharacters, 
             name = "{0}/".format(name)
           elif f.isSymlink:
             name = "{0}@".format(name)
+          elif f.isRegular and f.isExecutable:
+            name = "{0}*".format(name)
         
         if f.isSymlink:
           name = "{0} -> {1}".format(name, f.getLinkedPath())
