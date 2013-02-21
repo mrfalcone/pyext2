@@ -86,7 +86,7 @@ class Ext2Filesystem(object):
     """Gets the file object representing the root directory."""
     if not self.isValid:
       raise FilesystemError("Filesystem is not valid.")
-    return self._rootDir
+    return _openRootDirectory(self)
 
   @property
   def isValid(self):
@@ -129,7 +129,7 @@ class Ext2Filesystem(object):
       self._superblock = _Superblock.read(1024, self._device)
       self._bgdt = _BGDT.read(0, self._superblock, self._device)
       self._isValid = True
-      self._rootDir = _openRootDirectory(self)
+      _openRootDirectory(self)
     except:
       if self._device.isMounted:
         self._device.unmount()
