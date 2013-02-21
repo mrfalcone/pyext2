@@ -247,6 +247,8 @@ class Ext2Directory(Ext2File):
       del pathParts[-1]
     if len(pathParts) == 0:
       raise FileNotFoundError()
+    if len(pathParts[0]) == 0:
+      return self
     
     curFile = self
     for curPart in pathParts:

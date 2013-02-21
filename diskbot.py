@@ -247,7 +247,7 @@ def printDirectory(directory, recursive, showAll, longList, showTypeCharacters, 
         maxUidLen = max(len(str(f.uid)), maxUidLen)
         maxGidLen = max(len(str(f.gid)), maxGidLen)
     
-    files = sorted(files, key=lambda file: file.name)
+    files = sorted(files, key=lambda f: f.name)
     
     if recursive:
       print "{0}:".format(d.absolutePath)
@@ -380,6 +380,38 @@ def makeLink(sourceFile, destDir, name, isSymbolic):
     destDir.makeHardLink(name, sourceFile)
 
 
+def getFileObject(fs, directory, path, followSymlinks):
+  """Looks up the file object specified by the given absolute path or the path relative to the specified directory."""
+  try:
+    if path == "/":
+      fileObject = fs.rootDir
+    elif path.startswith("/"):
+      fileObject = fs.rootDir.getFileAt(path[1:], followSymlinks)
+    else:
+      fileObject = directory.getFileAt(path, followSymlinks)
+  except FileNotFoundError:
+    raise FilesystemError("{0} does not exist.".format(path))
+  if fileObject.absolutePath == directory.absolutePath:
+    fileObject = directory
+  return fileObject
+
+
+def parseNewPath(fs, directory, path):
+  """Parses the given absolute path or path relative to the specified directory and returns the name of a file
+  and its parent directory."""
+  parentDir = directory
+  if path.startswith("/"):
+    path = path[1:]
+    parentDir = fs.rootDir
+    if parentDir.absolutePath == directory.absolutePath:
+      parentDir = directory
+  if "/" in path:
+    name = path[path.rindex("/")+1:]
+    parentDir = getFileObject(fs, directory, path[:path.rindex("/")], True)
+  else:
+    name = path
+  return (parentDir, name)
+
 
 def shell(fs):
   """Enters a command-line shell with commands for operating on the specified filesystem."""
@@ -433,34 +465,6 @@ def shell(fs):
     return (cmd, flags, parameters)
   
   
-  def __getFileObject(path, followSymlinks):
-    try:
-      if path.startswith("/"):
-        fileObject = fs.rootDir.getFileAt(path[1:], followSymlinks)
-      else:
-        fileObject = workingDir.getFileAt(path, followSymlinks)
-    except FileNotFoundError:
-      raise FilesystemError("{0} does not exist.".format(path))
-    if fileObject.absolutePath == workingDir.absolutePath:
-      fileObject = workingDir
-    return fileObject
-  
-  
-  def __parseNewPath(path):
-    parentDir = workingDir
-    if path.startswith("/"):
-      path = path[1:]
-      parentDir = fs.rootDir
-      if parentDir.absolutePath == workingDir.absolutePath:
-        parentDir = workingDir
-    if "/" in path:
-      name = path[path.rindex("/")+1:]
-      parentDir = __getFileObject(path[:path.rindex("/")], True)
-    else:
-      name = path
-    return (parentDir, name)
-  
-  
   while True:
     inputline = raw_input(": '{0}' >> ".format(workingDir.absolutePath)).rstrip()
     if len(inputline) == 0:
@@ -486,7 +490,7 @@ def shell(fs):
           printDirectory(workingDir, "R" in flags, "a" in flags, "l" in flags, "F" in flags,
                          "i" in flags, "u" in flags, "U" in flags)
         elif len(parameters) == 1:
-          lsDir = __getFileObject(parameters[0], True)
+          lsDir = getFileObject(fs, workingDir, parameters[0], True)
           printDirectory(lsDir, "R" in flags, "a" in flags, "l" in flags, "F" in flags,
                          "i" in flags, "u" in flags, "U" in flags)
         else:
@@ -495,7 +499,7 @@ def shell(fs):
       elif cmd == "cd":
         if len(parameters) != 1:
           raise ShellError("Invalid parameters.")
-        cdDir = __getFileObject(parameters[0], True)
+        cdDir = getFileObject(fs, workingDir, parameters[0], True)
         if not cdDir.isDir:
           raise FilesystemError("Not a directory.")
         workingDir = cdDir
@@ -504,7 +508,7 @@ def shell(fs):
       elif cmd == "mkdir":
         if len(parameters) != 1:
           raise ShellError("Invalid parameters.")
-        parsed = __parseNewPath(parameters[0])
+        parsed = parseNewPath(fs, workingDir, parameters[0])
         parentDir = parsed[0]
         name = parsed[1]
         parentDir.makeDirectory(name)
@@ -513,7 +517,7 @@ def shell(fs):
       elif cmd == "rm":
         if len(parameters) != 1:
           raise ShellError("Invalid parameters.")
-        parsed = __parseNewPath(parameters[0])
+        parsed = parseNewPath(fs, workingDir, parameters[0])
         parentDir = parsed[0]
         name = parsed[1]
         rmFile = parentDir.getFileAt(name, False)
@@ -523,11 +527,11 @@ def shell(fs):
       elif cmd == "mv" or cmd == "cp":
         if len(parameters) != 2:
           raise ShellError("Invalid parameters.")
-        parsed = __parseNewPath(parameters[0])
+        parsed = parseNewPath(fs, workingDir, parameters[0])
         parentDir = parsed[0]
         name = parsed[1]
         fromFile = parentDir.getFileAt(name, False)
-        parsed = __parseNewPath(parameters[1])
+        parsed = parseNewPath(fs, workingDir, parameters[1])
         toDir = parsed[0]
         name = parsed[1]
         
@@ -556,11 +560,11 @@ def shell(fs):
       elif cmd == "ln":
         if len(parameters) != 2:
           raise ShellError("Invalid parameters.")
-        parsed = __parseNewPath(parameters[0])
+        parsed = parseNewPath(fs, workingDir, parameters[0])
         parentDir = parsed[0]
         name = parsed[1]
         sourceFile = parentDir.getFileAt(name, False)
-        parsed = __parseNewPath(parameters[1])
+        parsed = parseNewPath(fs, workingDir, parameters[1])
         destDir = parsed[0]
         name = parsed[1]
         if len(name) == 0:
@@ -576,7 +580,7 @@ def shell(fs):
       print e
       continue
 
-
+  
 
 
 
@@ -661,11 +665,7 @@ def putFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     raise FilesystemNotSupportedError()
   
   destFilename = srcFilename[srcFilename.rfind("/")+1:]
-  
-  try:
-    directory = fs.rootDir.getFileAt(destDirectory)
-  except FileNotFoundError:
-    raise FilesystemError("Destination directory does not exist.")
+  directory = getFileObject(fs, fs.rootDir, destDirectory, False)
 
   if not os.path.exists(srcFilename):
     raise FilesystemError("Source file does not exist.")
@@ -760,9 +760,9 @@ def run(args, fs):
   showIntegrityCheck = ("-c" in args)
   suppressIndicator = ("-w" in args)
   fetch = ("-f" in args)
-  push = ("-p" in args)
+  put = ("-p" in args)
   
-  if showHelp or not (showGeneralInfo or enterShell or showDetailedInfo or showIntegrityCheck or fetch or push):
+  if showHelp or not (showGeneralInfo or enterShell or showDetailedInfo or showIntegrityCheck or fetch or put):
     printHelp()
     quit()
   
@@ -777,7 +777,7 @@ def run(args, fs):
     if len(info) > 0:
       printInfoPairs(info)
       
-    if push:
+    if put:
       srcNameIndex = args.index("-p") + 1
       destNameIndex = srcNameIndex + 1
       if len(args) <= srcNameIndex:
@@ -833,6 +833,8 @@ def main():
       print "Error! {0}".format(e)
       print
       quit()
+    except IOError:
+      print "Could not read image file."
 
 
 
