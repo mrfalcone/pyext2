@@ -21,7 +21,7 @@ class Ext2RegularFile(Ext2File):
   def __init__(self, dirEntry, inode, fs):
     """Constructs a new regular file object from the specified directory entry."""
     super(Ext2RegularFile, self).__init__(dirEntry, inode, fs)
-    if (self._inode.mode & 0x8000) == 0:
+    if (self._inode.mode & 0x8000) != 0x8000:
       raise FilesystemError("Inode does not point to a regular file.")
 
 

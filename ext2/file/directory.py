@@ -59,8 +59,8 @@ class _EntryList(object):
     return entry
   
   
-  def append(self, name, inodeNum):
-    """Appends a new entry for the specified inode number at the end of the list, and returns
+  def append(self, name, inode):
+    """Appends a new entry for the specified inode at the end of the list, and returns
     the entry object."""
     
     nameLength = len(name)
@@ -87,7 +87,16 @@ class _EntryList(object):
       self._containingDir._inode.size += self._containingDir._fs.blockSize
       entryOffset = 0
     
-    byteString = pack("<IHBB{0}s".format(nameLength), inodeNum, entrySize, nameLength, 0, name)
+    fileType = 0
+    if self._containingDir._fs._superblock.revisionMajor > 0:
+      if (inode.mode & 0x4000) == 0x4000:
+        fileType = 2
+      elif (inode.mode & 0xA000) == 0xA000:
+        fileType = 7
+      elif (inode.mode & 0x8000) == 0x8000:
+        fileType = 1
+    
+    byteString = pack("<IHBB{0}s".format(nameLength), inode.number, entrySize, nameLength, fileType, name)
     self._containingDir._fs._writeToBlock(entryBlockId, entryOffset, byteString)
     newEntry = _Entry(entryBlockIndex, entryBlockId, entryOffset, None, byteString, self._containingDir)
     newEntry.nextEntry = None
@@ -168,7 +177,13 @@ class _Entry(object):
   def __init__(self, blockIndex, blockId, blockOffset, prevEntry, byteString, containingDir):
     """Contructs a new entry in the linked list."""
     
-    fields = unpack_from("<IHB", byteString)
+    if containingDir._fs._superblock.revisionMajor == 0:
+      fields = unpack_from("<IHH", byteString)
+      self._fileType = 0
+    else:
+      fields = unpack_from("<IHBB", byteString)
+      self._fileType = fields[3]
+    
     self._name = unpack_from("<{0}s".format(fields[2]), byteString, 8)[0]
     self._inodeNum = fields[0]
     self._size = fields[1]
@@ -203,7 +218,7 @@ class Ext2Directory(Ext2File):
   def __init__(self, dirEntry, inode, fs):
     """Constructs a new directory object from the specified directory entry."""
     super(Ext2Directory, self).__init__(dirEntry, inode, fs)
-    if (self._inode.mode & 0x4000) == 0:
+    if (self._inode.mode & 0x4000) != 0x4000:
       raise FilesystemError("Inode does not point to a directory.")
     self._entryList = _EntryList(self)
 
@@ -319,7 +334,7 @@ class Ext2Directory(Ext2File):
     
     oldEntry = fromFile._dirEntry
     oldParent = fromFile.parentDir
-    fromFile._dirEntry = toDir._entryList.append(name, fromFile.inodeNum)
+    fromFile._dirEntry = toDir._entryList.append(name, fromFile._inode)
     fromFile._parentDir = toDir
     oldParent._entryList.remove(oldEntry)
 
@@ -385,7 +400,7 @@ class Ext2Directory(Ext2File):
     """Creates a new hard link in this directory to the given file object and returns the new file object."""
     self.__validateName(name)
     inode = linkedFile._inode
-    entry = self._entryList.append(name, inode.number)
+    entry = self._entryList.append(name, inode)
     inode.numLinks += 1
     return Ext2Directory._openEntry(entry, self._fs)
 
@@ -434,6 +449,9 @@ class Ext2Directory(Ext2File):
     if len(name.strip()) == 0:
       raise FilesystemError("No name specified.")
 
+    if len(name) > 255:
+      raise FilesystemError("Specified name is too long.")
+
     if name == "." or name == "..":
       raise FilesystemError("Invalid name specified.")
 
@@ -464,7 +482,7 @@ class Ext2Directory(Ext2File):
       bid = self._fs._allocateBlock(True)
       inode.assignNextBlockId(bid)
     
-    entry = self._entryList.append(name, inode.number)
+    entry = self._entryList.append(name, inode)
     inode.numLinks += 1
     
     return entry
