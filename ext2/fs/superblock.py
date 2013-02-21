@@ -221,6 +221,10 @@ class _Superblock(object):
     """Gets the id of the first meta block group."""
     return self._firstMetaGroupId
 
+  @property
+  def logBlockSize(self):
+    """Gets the log block size used by the filesystem."""
+    return self._logBlockSize
 
 
 
@@ -333,10 +337,11 @@ class _Superblock(object):
     self._numFreeInodes = fields[4]
     self._firstBlockId = fields[5]
     self._blockSize = 1024 << fields[6]
+    self._logBlockSize = fields[7]
     if fields[7] > 0:
-      self._fragSize = 1024 << fields[7]
+      self._fragSize = 1024 << self._logBlockSize
     else:
-      self._fragSize = 1024 >> abs(fields[7])
+      self._fragSize = 1024 >> abs(self._logBlockSize)
     self._numBlocksPerGroup = fields[8]
     self._numFragsPerGroup = fields[9]
     self._numInodesPerGroup = fields[10]

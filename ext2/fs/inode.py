@@ -8,7 +8,6 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from struct import pack, unpack, unpack_from
 from time import time
-from math import ceil
 from ..error import FilesystemError
 
 
@@ -232,9 +231,9 @@ class _Inode(object):
     self._inodeTableOffset = inodeTableOffset
     
     if superblock.revisionMajor == 0:
-      fields = unpack_from("<2Hi4IHh4xI4x15I", inodeBytes)
+      fields = unpack_from("<2Hi4IHh2I4x15I", inodeBytes)
     else:
-      fields = unpack_from("<2H5IHh4xI4x15I8xI", inodeBytes)
+      fields = unpack_from("<2H5IHh2I4x15I8xI", inodeBytes)
 
     osFields = []
     if superblock.creatorOS == "LINUX":
@@ -253,12 +252,13 @@ class _Inode(object):
     self._timeDeleted = fields[6]
     self._gid = fields[7]
     self._numLinks = fields[8]
-    self._flags = fields[9]
+    self._numDataBlocks = fields[9] / (2 << self._superblock.logBlockSize)
+    self._flags = fields[10]
     self._blocks = []
     for i in range(15):
-      self._blocks.append(fields[10+i])
+      self._blocks.append(fields[11+i])
     if superblock.revisionMajor > 0:
-      self._size |= (fields[25] << 32)
+      self._size |= (fields[26] << 32)
     if superblock.creatorOS == "LINUX":
       self._uid |= (osFields[0] << 16)
       self._gid |= (osFields[1] << 16)
@@ -272,13 +272,6 @@ class _Inode(object):
     self._numIndirectBlocks = self._numDirectBlocks + self._numIdsPerBlock
     self._numDoublyIndirectBlocks = self._numIndirectBlocks + self._numIdsPerBlock ** 2
     self._numTreblyIndirectBlocks = self._numDoublyIndirectBlocks + self._numIdsPerBlock ** 3
-
-    self._numDataBlocks = int(ceil(float(self.size) / self._superblock.blockSize))
-    if self._numDataBlocks == 0:
-      lastBid = self._blocks[0]
-      while lastBid != 0:
-        self._numDataBlocks += 1
-        lastBid = self.lookupBlockId(self._numDataBlocks)
 
 
   def free(self):
@@ -400,6 +393,7 @@ class _Inode(object):
       self._blocks[index] = bid
       self._numDataBlocks += 1
       self.__writeData(40+(index*4), pack("<I", bid))
+      self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
       return index
 
 
@@ -409,6 +403,7 @@ class _Inode(object):
         self.__writeData(88, pack("<I", self.blocks[12]))
       self.__writeToBidListAtBid(self.blocks[12], index - self._numDirectBlocks, bid)
       self._numDataBlocks += 1
+      self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
       return index
 
 
@@ -429,6 +424,7 @@ class _Inode(object):
       directList[directIndex] = bid
       self.__writeToBidListAtBid(indirectList[indirectIndex], directIndex, directList[directIndex])
       self._numDataBlocks += 1
+      self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
       return index
 
 
@@ -455,6 +451,7 @@ class _Inode(object):
       directList[directIndex] = bid
       self.__writeToBidListAtBid(indirectList[indirectIndex], directIndex, directList[directIndex])
       self._numDataBlocks += 1
+      self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
       return index
     
     raise FilesystemError("No block space available.")
