@@ -337,6 +337,14 @@ class Ext2Directory(Ext2File):
     fromFile._dirEntry = toDir._entryList.append(name, fromFile._inode)
     fromFile._parentDir = toDir
     oldParent._entryList.remove(oldEntry)
+    
+    if fromFile.isDir:
+      oldParent._inode.numLinks -= 1
+      fromFile.parentDir._inode.numLinks += 1
+      for entry in fromFile._entryList:
+        if entry.name == "..":
+          entry.inodeNum = fromFile.parentDir._inode.number
+          break
 
 
 
