@@ -7,10 +7,12 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 import inspect
+from os import path, remove
 from collections import deque
 from struct import pack, unpack
 from time import time
-from ..file.directory import _openRootDirectory
+from math import ceil
+from ..file.directory import _openRootDirectory, _writeRootDirectory
 from ..error import FilesystemError
 from .superblock import _Superblock
 from .bgdt import _BGDT
@@ -92,6 +94,61 @@ class Ext2Filesystem(object):
   def isValid(self):
     """Gets whether the filesystem is valid and mounted."""
     return self._isValid
+
+
+  @classmethod
+  def makeFromNewImageFile(cls, imageFilename, blockSize, numBlocks):
+    """Creates a new Ext2 filesystem image with the specified image file name and
+    the specfied number of blocks. The specified block size must be either 1024, 2048,
+    or 4096."""
+    if blockSize != 1024 and blockSize != 2048 and blockSize != 4096:
+      raise FilesystemError("Invalid blocksize specified.")
+    device = _DeviceFromFile.makeNew(imageFilename, blockSize * numBlocks)
+    device.mount()
+    try:
+      blocksPerGroup = blockSize * 8
+      numBlockGroups = int(ceil(float(numBlocks) / blocksPerGroup))
+      
+      copyBlockGroupIds = []
+      if numBlockGroups > 1:
+        copyBlockGroupIds.append(1)
+        last3 = 3
+        while last3 < numBlockGroups:
+          copyBlockGroupIds.append(last3)
+          last3 *= 3
+        last5 = 5
+        while last5 < numBlockGroups:
+          copyBlockGroupIds.append(last5)
+          last5 *= 5
+        last7 = 7
+        while last7 < numBlockGroups:
+          copyBlockGroupIds.append(last7)
+          last7 *= 7
+
+      currentTime = int(time())
+      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, numBlockGroups,
+                                   len(copyBlockGroupIds), currentTime)
+      # bgdt = _BGDT.read(0, superblock, device)
+      # 
+      # for bgNum in copyBlockGroupIds:
+      #   superblock = _Superblock.new(bgNum * blocksPerGroup * blockSize, device, bgNum, blockSize, numBlocks,
+      #                                numBlockGroups, len(copyBlockGroupIds), currentTime)
+      #   bgdt = _BGDT.read(0, superblock, device)
+      # 
+      # _writeRootDirectory(self)
+      
+    except Exception as e:
+      if device.isMounted:
+        device.unmount()
+      if path.exists(imageFilename):
+        remove(imageFilename)
+      raise e
+
+    device.unmount()
+    
+    return cls(device)
+    
+  
   
   
   

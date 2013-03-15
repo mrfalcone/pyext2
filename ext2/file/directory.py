@@ -19,6 +19,11 @@ def _openRootDirectory(fs):
   """Opens and returns the root directory of the specified filesystem."""
   return Ext2Directory._openEntry(None, fs)
 
+def _writeRootDirectory(fs):
+  """Creates and returns a new root directory of the specified filesystem."""
+  #TODO implement
+  pass
+
 
 
 class _EntryList(object):

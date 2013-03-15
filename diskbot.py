@@ -613,7 +613,7 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
   
   if not os.path.exists(destDirectory):
     print "Making directory {0}".format(destDirectory)
-    os.mkdir(destDirectory)
+    os.makedirs(destDirectory)
     
   for srcFilename in filesToFetch:
     try:
@@ -728,8 +728,6 @@ def putFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
 
 
 
-
-
 # ========= MAIN APPLICATION ==============================================
 
 def printHelp():
@@ -753,6 +751,9 @@ def printHelp():
   print
   print "{0}{1}".format("-c".ljust(sp), "Checks the filesystem's integrity and prints a")
   print "{0}{1}".format("".ljust(sp), "detailed integrity report.")
+  print
+  print "{0}{1}".format("-n blockSize numBlocks".ljust(sp), "Creates the specified image file as a new ext2")
+  print "{0}{1}".format("".ljust(sp), "image with the specified parameters.")
   print
   print "{0}{1}".format("-w".ljust(sp), "Suppress the wait indicator that is typically")
   print "{0}{1}".format("".ljust(sp), "shown for long operations. This is useful when")
@@ -834,12 +835,30 @@ def main():
   else:
     filename = args[1]
     del args[0:1]
-    try:
-      fs = Ext2Filesystem.fromImageFile(filename)
-      with fs:
-        run(args, fs)
-    except IOError:
-      print "Could not read image file."
+    
+    if "-n" in args:
+      try:
+        i = args.index("-n")
+        if len(args) < i + 3:
+          raise ShellError("Invalid parameters. Usage: -n blockSize numBlocks.")
+        imageFilename = filename
+        blockSize = int(args[i+1])
+        numBlocks = int(args[i+2])
+        print "Making new filesystem {0} with blocksize {1} and {2} blocks...".format(imageFilename, blockSize, numBlocks)
+        Ext2Filesystem.makeFromNewImageFile(filename, blockSize, numBlocks)
+        print "Done."
+      except ShellError as e:
+        print "Error! {0}".format(e)
+      except FilesystemError as e:
+        print "Error! {0}".format(e)
+    
+    else:
+      try:
+        fs = Ext2Filesystem.fromImageFile(filename)
+        with fs:
+          run(args, fs)
+      except IOError:
+        print "Could not read image file."
 
 
 

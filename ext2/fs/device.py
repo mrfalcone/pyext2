@@ -6,7 +6,8 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
-from os import fsync
+from os import fsync, path, makedirs
+from ..error import FilesystemError
 
 
 class _DeviceFromFile(object):
@@ -16,6 +17,24 @@ class _DeviceFromFile(object):
   def isMounted(self):
     """Returns whether the device is currently mounted."""
     return (not self._imageFile is None)
+
+  @classmethod
+  def makeNew(cls, imageFilename, numBytes):
+    """Creates a new device image with the specified filename."""
+    destDirectory = path.dirname(imageFilename)
+    if len(destDirectory) > 0:
+      if not path.exists(destDirectory):
+        makedirs(destDirectory)
+    
+    if path.exists(imageFilename):
+      raise FilesystemError("Specified image file already exists.")
+    
+    f = open(imageFilename, "wb")
+    with f:
+      f.seek(numBytes-1)
+      f.write('0')
+    
+    return cls(imageFilename)
   
   def __init__(self, filename):
     """Constructs a new device object from the specified file."""

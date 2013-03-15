@@ -6,6 +6,7 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
+from uuid import uuid4
 from struct import pack,unpack_from
 from math import ceil
 from ..error import FilesystemError
@@ -307,11 +308,59 @@ class _Superblock(object):
 
 
   @classmethod
-  def new(cls, byteOffset, device):
+  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, numBlockGroups, numShadowCopies, currentTime):
     """Creates a new superblock at the byte offset in the specified image file, and returns
-    the new object."""
-    # TODO implement creation
-    return None
+    the new superblock object."""
+    
+    firstInodeIndex = 11
+    inodeSize = 128
+    numInodesPerGroup = blockSize * 8
+    numInodes = numInodesPerGroup * numBlockGroups
+    numResBlocks = int(numBlocks * 0.05)
+    inodeTableBlocks = int(ceil(numInodesPerGroup * inodeSize / blockSize))
+    numFreeInodes = numInodes - firstInodeIndex
+    numFreeBlocks = numBlocks - inodeTableBlocks * numBlockGroups - 2 * numBlockGroups - 2 * (numShadowCopies + 1)
+    if numFreeBlocks < 10:
+      raise FilesystemError("Not enough blocks specified.")
+    if blockSize > 1024:
+      firstBlockId = 0
+    else:
+      firstBlockId = 1
+    logBlockSize = blockSize >> 11
+    logFragSize = blockSize >> 11
+    numBlocksPerGroup = blockSize * 8
+    numFragsPerGroup = blockSize * 8
+    timeLastMount = currentTime
+    timeLastWrite = currentTime
+    numMountsSinceCheck = 0
+    numMountsMax = 25
+    magicNum = 0xEF53
+    state = 1
+    errorAction = 1
+    revMinor = 0
+    timeLastCheck = currentTime
+    timeBetweenCheck = 15552000
+    creatorOs = 0
+    revLevel = 1
+    defResUid = 0
+    defResGid = 0
+    featuresCompatible = 0
+    featuresIncompatible = 2
+    featuresReadOnlyCompatible = 1
+    volumeId = uuid4().bytes
+    volName = "0".zfill(16)
+    lastMountPath = "/{0}".format("0".zfill(63))
+    
+    sbBytes = pack("<7Ii5I6H4I2HI2H3I16s16s64s824s", numInodes, numBlocks, numResBlocks, numFreeBlocks, numFreeInodes,
+                   firstBlockId, logBlockSize, logFragSize, numBlocksPerGroup, numFragsPerGroup,
+                   numInodesPerGroup, timeLastMount, timeLastWrite, numMountsSinceCheck, numMountsMax,
+                   magicNum, state, errorAction, revMinor, timeLastCheck, timeBetweenCheck, creatorOs,
+                   revLevel, defResUid, defResGid, firstInodeIndex, inodeSize, bgNum, featuresCompatible,
+                   featuresIncompatible, featuresReadOnlyCompatible, volumeId, volName, lastMountPath, "0".zfill(824))
+    
+    device.write(byteOffset, sbBytes)
+
+    return cls(sbBytes, byteOffset, device)
 
 
   @classmethod
@@ -337,11 +386,11 @@ class _Superblock(object):
     self._numFreeInodes = fields[4]
     self._firstBlockId = fields[5]
     self._blockSize = 1024 << fields[6]
-    self._logBlockSize = fields[7]
+    self._logBlockSize = fields[6]
     if fields[7] > 0:
-      self._fragSize = 1024 << self._logBlockSize
+      self._fragSize = 1024 << fields[7]
     else:
-      self._fragSize = 1024 >> abs(self._logBlockSize)
+      self._fragSize = 1024 >> abs(fields[7])
     self._numBlocksPerGroup = fields[8]
     self._numFragsPerGroup = fields[9]
     self._numInodesPerGroup = fields[10]
@@ -444,6 +493,10 @@ class _Superblock(object):
         while last3 < self._numBlockGroups:
           self._copyBlockGroupIds.append(last3)
           last3 *= 3
+        last5 = 5
+        while last5 < self._numBlockGroups:
+          self._copyBlockGroupIds.append(last5)
+          last5 *= 5
         last7 = 7
         while last7 < self._numBlockGroups:
           self._copyBlockGroupIds.append(last7)
