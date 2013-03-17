@@ -70,8 +70,7 @@ class _EntryList(object):
 
     lastEntry = self._entries[-1]
 
-    entrySize = nameLength + 11 # 7 bytes for record base, 4 bytes for alignment
-    entrySize -= entrySize % 4 # align to 4 bytes
+    entrySize = nameLength + 7
 
     # if new entry doesn't fit on current block, allocate a new one
     if entrySize + lastEntry._offset + len(lastEntry.name) + 11 < self._containingDir._fs.blockSize:
@@ -80,11 +79,13 @@ class _EntryList(object):
       lastSize = len(lastEntry.name) + 11 # 7 bytes for record base, 4 bytes for alignment
       lastSize -= lastSize % 4 # align to 4 bytes
       entryOffset = lastEntry._offset + lastSize
+      entrySize = self._containingDir._fs.blockSize - entryOffset
     else:
       entryBlockId = self._containingDir._fs._allocateBlock(True)
       entryBlockIndex = self._containingDir._inode.assignNextBlockId(entryBlockId)
       self._containingDir._inode.size += self._containingDir._fs.blockSize
       entryOffset = 0
+      entrySize = self._containingDir._fs.blockSize
     
     fileType = 0
     if self._containingDir._fs._superblock.revisionMajor > 0:
@@ -367,7 +368,7 @@ class Ext2Directory(Ext2File):
     mode |= 0x0001 # others execute
     
     entry = self.__makeNewEntry(name, mode, uid, gid, True)
-    defaultEntries = pack("<IHBB1s3xIHBB2s", entry.inodeNum, 12, 1, 0, ".", self._inode.number, 12, 2, 0, "..")
+    defaultEntries = pack("<IHBB1s3xIHBB2s", entry.inodeNum, 12, 1, 2, ".", self._inode.number, self._fs.blockSize-12, 2, 2, "..")
     self._inode.numLinks += 1
     inode = self._fs._readInode(entry._inodeNum)
     inode.numLinks += 1

@@ -133,11 +133,11 @@ class _BGDT(object):
         
       
       if bgroupNum != superblock.numBlocksPerGroup - 1: # if not the final block group
-        numFreeBlocks = superblock.numBlocksPerGroup
+        numTotalBlocksInGroup = superblock.numBlocksPerGroup
       else:
-        numFreeBlocks = superblock.numBlocks - (bgroupNum * superblock.numBlocksPerGroup)
+        numTotalBlocksInGroup = superblock.numBlocks - (bgroupNum * superblock.numBlocksPerGroup)
 
-      numFreeBlocks -= numUsedBlocks
+      numFreeBlocks = numTotalBlocksInGroup - numUsedBlocks
 
       if numFreeBlocks < 0:
         raise FilesystemError("Not enough blocks specified.")
@@ -154,6 +154,12 @@ class _BGDT(object):
           blockBitmap[bitmapIndex] |= 1
           if (i+1) % 8 == 0:
             bitmapIndex += 1
+        bitmapIndex = -1
+        for i in range(superblock.blockSize - numTotalBlocksInGroup): # write end padding
+          blockBitmap[bitmapIndex] <<= 1
+          blockBitmap[bitmapIndex] |= 1
+          if (i+1) % 8 == 0:
+            bitmapIndex -= 1
         blockBitmapBytes = "".join(map(pack, fmt, blockBitmap))
         device.write(blockBitmapLocation * superblock.blockSize, blockBitmapBytes)
 

@@ -307,10 +307,12 @@ class _Superblock(object):
 
 
   @classmethod
-  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime, volumeId):
+  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, currentTime, volumeId):
     """Creates a new superblock at the byte offset in the specified image file, and returns
     the new superblock object."""
-
+    
+    numBlockGroups = int(ceil(float(numBlocks) / (blockSize * 8)))
+    
     copyBlockGroupIds = []
     if numBlockGroups > 1:
       copyBlockGroupIds.append(1)
@@ -346,6 +348,9 @@ class _Superblock(object):
     logFragSize = blockSize >> 11
     numBlocksPerGroup = blockSize * 8
     numFragsPerGroup = blockSize * 8
+    if numBlocks < numBlocksPerGroup:
+      numBlocksPerGroup = numBlocks
+      numFragsPerGroup = numBlocks
     timeLastMount = currentTime
     timeLastWrite = currentTime
     numMountsSinceCheck = 0

@@ -107,18 +107,17 @@ class Ext2Filesystem(object):
     device = _DeviceFromFile.makeNew(imageFilename, blockSize * numBlocks)
     device.mount()
     try:
-      numBlockGroups = int(ceil(float(numBlocks) / (blockSize * 8)))
       currentTime = int(time())
       volumeId = uuid4().bytes
       
       # write superblocks and BGDTs
-      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, numBlockGroups, currentTime, volumeId)
+      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, currentTime, volumeId)
       bgdt = _BGDT.new(0, superblock, device)
       
       if len(superblock.copyLocations) > 0:
         for bgNum in superblock.copyLocations[1:]:
           offset = 1024 + bgNum * superblock.numBlocksPerGroup * blockSize
-          shadowSb = _Superblock.new(offset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime, volumeId)
+          shadowSb = _Superblock.new(offset, device, bgNum, blockSize, numBlocks, currentTime, volumeId)
           _BGDT.new(bgNum, shadowSb, device)
 
 
@@ -141,7 +140,7 @@ class Ext2Filesystem(object):
       rootInodeBytes = "{0}{1}".format(rootInodeBytes, "".join(map(pack, fillFmt, zeroFill)))
       device.write(rootInodeOffset, rootInodeBytes)
       
-      superblock._saveCopies = True
+      #superblock._saveCopies = True
       bgdt.entries[0].numInodesAsDirs += 1
       
       fs = cls(device)
@@ -150,7 +149,7 @@ class Ext2Filesystem(object):
       fs._isValid = True
       
       rootBid = fs._allocateBlock(True)
-      defaultEntries = pack("<IHBB1s3xIHBB2s", 2, 12, 1, 0, ".", 2, 12, 2, 0, "..")
+      defaultEntries = pack("<IHBB1s3xIHBB2s", 2, 12, 1, 2, ".", 2, blockSize - 12, 2, 2, "..")
       fs._writeToBlock(rootBid, 0, defaultEntries)
       
       rootInode = fs._readInode(2)
@@ -162,7 +161,9 @@ class Ext2Filesystem(object):
       # write lost and found directory
       lfDir = fs.rootDir.makeDirectory("lost+found")
       while lfDir._inode.numDataBlocks < 8:
-        lfDir._inode.assignNextBlockId(fs._allocateBlock(True))
+        newBid = fs._allocateBlock(True)
+        lfDir._inode.assignNextBlockId(newBid)
+        fs._writeToBlock(newBid, 4, pack("<H", blockSize))
         lfDir._inode.size += blockSize
 
       
