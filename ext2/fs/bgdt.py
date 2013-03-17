@@ -7,6 +7,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 from struct import pack,unpack_from
+from math import ceil
 from time import time
 from ..error import FilesystemError
 
@@ -14,13 +15,11 @@ from ..error import FilesystemError
 class _BGDTEntry(object):
   """Models an entry in the block group descriptor table. For internal use only."""
 
-
   @property
   def blockBitmapLocation(self):
     """Gets the block id of the block bitmap for this block group."""
     return self._blockBitmapBid
-
-
+  
   @property
   def inodeBitmapLocation(self):
     """Gets the block id of the inode bitmap for this block group."""
@@ -101,10 +100,80 @@ class _BGDT(object):
 
 
   @classmethod
-  def new(cls, groupId, superblock, device):
-    """Creates a new BGDT at the specified group number and returns the new object."""
-    # TODO implement creation
-    return None
+  def new(cls, bgNumCopy, superblock, device):
+    """Creates a new BGDT at the specified block group number, along with bitmaps,
+    and returns the new object."""
+
+    groupStart = bgNumCopy * superblock.numBlocksPerGroup * superblock.blockSize
+    startPos = groupStart + (superblock.blockSize * (superblock.firstDataBlockId + 1))
+    numBgdtBlocks = int(ceil(float(superblock.numBlockGroups * 32) / superblock.blockSize))
+    inodeTableBlocks = int(ceil(float(superblock.numInodesPerGroup * superblock.inodeSize) / superblock.blockSize))
+
+    bgdtBytes = ""
+    for bgroupNum in range(superblock.numBlockGroups):
+      
+      bgroupBid = bgroupNum * superblock.blockSize * superblock.numBlocksPerGroup
+      blockBitmapLocation = bgroupBid
+      inodeBitmapLocation = bgroupBid + 1
+      inodeTableLocation = bgroupBid + 2
+      numInodesAsDirs = 0
+
+      numUsedBlocks = 2 + inodeTableBlocks
+      if bgroupNum in superblock.copyLocations: # account for superblock and bgdt blocks
+        numUsedBlocks += (1 + numBgdtBlocks)
+        blockBitmapLocation += (1 + numBgdtBlocks)
+        inodeBitmapLocation += (1 + numBgdtBlocks)
+        inodeTableLocation += (1 + numBgdtBlocks)
+      
+      numUsedInodes = 0
+      if bgroupNum == 0:
+        numUsedInodes += (superblock.firstInode - 1)
+      
+      numFreeInodes = superblock.numInodesPerGroup - numUsedInodes
+        
+      
+      if bgroupNum != superblock.numBlocksPerGroup - 1: # if not the final block group
+        numFreeBlocks = superblock.numBlocksPerGroup
+      else:
+        numFreeBlocks = superblock.numBlocks - (bgroupNum * superblock.numBlocksPerGroup)
+
+      numFreeBlocks -= numUsedBlocks
+
+      if numFreeBlocks < 0:
+        raise FilesystemError("Not enough blocks specified.")
+      
+      
+      # if this is the first copy of the BGDT being written, also write new bitmaps
+      if bgNumCopy == 0:
+        fmt = ["B"] * superblock.blockSize
+        
+        blockBitmap = [0] * superblock.blockSize
+        bitmapIndex = 0
+        for i in range(numUsedBlocks):
+          blockBitmap[bitmapIndex] <<= 1
+          blockBitmap[bitmapIndex] |= 1
+          if (i+1) % 8 == 0:
+            bitmapIndex += 1
+        blockBitmapBytes = "".join(map(pack, fmt, blockBitmap))
+        device.write(blockBitmapLocation * superblock.blockSize, blockBitmapBytes)
+
+        inodeBitmap = [0] * superblock.blockSize
+        bitmapIndex = 0
+        for i in range(numUsedInodes):
+          inodeBitmap[bitmapIndex] <<= 1
+          inodeBitmap[bitmapIndex] |= 1
+          if (i+1) % 8 == 0:
+            bitmapIndex += 1
+        inodeBitmapBytes = "".join(map(pack, fmt, inodeBitmap))
+        device.write(inodeBitmapLocation * superblock.blockSize, inodeBitmapBytes)
+        
+      entryBytes = pack("<3I3H", blockBitmapLocation, inodeBitmapLocation, inodeTableLocation,
+                        numFreeBlocks, numFreeInodes, numInodesAsDirs)
+      bgdtBytes = "{0}{1}".format(bgdtBytes, entryBytes)
+    
+    device.write(startPos, bgdtBytes)
+    
+    return cls(bgdtBytes, superblock, device)
 
 
   @classmethod

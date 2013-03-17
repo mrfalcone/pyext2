@@ -849,8 +849,10 @@ def main():
         print "Done."
       except ShellError as e:
         print "Error! {0}".format(e)
+        print "Filesystem creation failed."
       except FilesystemError as e:
         print "Error! {0}".format(e)
+        print "Filesystem creation failed."
     
     else:
       try:

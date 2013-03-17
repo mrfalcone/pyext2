@@ -106,35 +106,18 @@ class Ext2Filesystem(object):
     device = _DeviceFromFile.makeNew(imageFilename, blockSize * numBlocks)
     device.mount()
     try:
-      blocksPerGroup = blockSize * 8
-      numBlockGroups = int(ceil(float(numBlocks) / blocksPerGroup))
-      
-      copyBlockGroupIds = []
-      if numBlockGroups > 1:
-        copyBlockGroupIds.append(1)
-        last3 = 3
-        while last3 < numBlockGroups:
-          copyBlockGroupIds.append(last3)
-          last3 *= 3
-        last5 = 5
-        while last5 < numBlockGroups:
-          copyBlockGroupIds.append(last5)
-          last5 *= 5
-        last7 = 7
-        while last7 < numBlockGroups:
-          copyBlockGroupIds.append(last7)
-          last7 *= 7
-
+      numBlockGroups = int(ceil(float(numBlocks) / (blockSize * 8)))
       currentTime = int(time())
-      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, numBlockGroups,
-                                   len(copyBlockGroupIds), currentTime)
-      # bgdt = _BGDT.read(0, superblock, device)
-      # 
-      # for bgNum in copyBlockGroupIds:
-      #   superblock = _Superblock.new(bgNum * blocksPerGroup * blockSize, device, bgNum, blockSize, numBlocks,
-      #                                numBlockGroups, len(copyBlockGroupIds), currentTime)
-      #   bgdt = _BGDT.read(0, superblock, device)
-      # 
+      
+      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, numBlockGroups, currentTime)
+      _BGDT.new(0, superblock, device)
+      
+      if len(superblock.copyLocations) > 0:
+        for bgNum in superblock.copyLocations[1:]:
+          offset = bgNum * superblock.blocksPerGroup * blockSize
+          shadowSb = _Superblock.new(offset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime)
+          _BGDT.new(bgNum, shadowSb, device)
+      
       # _writeRootDirectory(self)
       
     except Exception as e:

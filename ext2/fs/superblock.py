@@ -308,18 +308,35 @@ class _Superblock(object):
 
 
   @classmethod
-  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, numBlockGroups, numShadowCopies, currentTime):
+  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime):
     """Creates a new superblock at the byte offset in the specified image file, and returns
     the new superblock object."""
-    
+
+    copyBlockGroupIds = []
+    if numBlockGroups > 1:
+      copyBlockGroupIds.append(1)
+      last3 = 3
+      while last3 < numBlockGroups:
+        copyBlockGroupIds.append(last3)
+        last3 *= 3
+      last5 = 5
+      while last5 < numBlockGroups:
+        copyBlockGroupIds.append(last5)
+        last5 *= 5
+      last7 = 7
+      while last7 < numBlockGroups:
+        copyBlockGroupIds.append(last7)
+        last7 *= 7
+
     firstInodeIndex = 11
     inodeSize = 128
     numInodesPerGroup = blockSize * 8
     numInodes = numInodesPerGroup * numBlockGroups
     numResBlocks = int(numBlocks * 0.05)
-    inodeTableBlocks = int(ceil(numInodesPerGroup * inodeSize / blockSize))
-    numFreeInodes = numInodes - firstInodeIndex
-    numFreeBlocks = numBlocks - inodeTableBlocks * numBlockGroups - 2 * numBlockGroups - 2 * (numShadowCopies + 1)
+    numFreeInodes = numInodes - (firstInodeIndex - 1)
+    bgdtBlocks = int(ceil(float(numBlockGroups * 32) / blockSize))
+    inodeTableBlocks = int(ceil(float(numInodesPerGroup * inodeSize) / blockSize))
+    numFreeBlocks = numBlocks - inodeTableBlocks * numBlockGroups - 2 * numBlockGroups - (1 + bgdtBlocks) * (len(copyBlockGroupIds) + 1)
     if numFreeBlocks < 10:
       raise FilesystemError("Not enough blocks specified.")
     if blockSize > 1024:
