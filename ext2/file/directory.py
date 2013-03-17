@@ -19,12 +19,6 @@ def _openRootDirectory(fs):
   """Opens and returns the root directory of the specified filesystem."""
   return Ext2Directory._openEntry(None, fs)
 
-def _writeRootDirectory(fs):
-  """Creates and returns a new root directory of the specified filesystem."""
-  #TODO implement
-  pass
-
-
 
 class _EntryList(object):
   """Represents a doubly-liked directory list in the Ext2 filesystem. For internal use only."""
@@ -237,7 +231,7 @@ class Ext2Directory(Ext2File):
       inode = fs._readInode(dirEntry.inodeNum)
     else:
       inode = fs._readInode(2)
-
+    
     if (inode.mode & 0x4000) == 0x4000:
       return Ext2Directory(dirEntry, inode, fs)
     if (inode.mode & 0xA000) == 0xA000:

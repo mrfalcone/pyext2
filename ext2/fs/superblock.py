@@ -6,7 +6,6 @@ __license__ = "BSD"
 __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
-from uuid import uuid4
 from struct import pack,unpack_from
 from math import ceil
 from ..error import FilesystemError
@@ -308,7 +307,7 @@ class _Superblock(object):
 
 
   @classmethod
-  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime):
+  def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime, volumeId):
     """Creates a new superblock at the byte offset in the specified image file, and returns
     the new superblock object."""
 
@@ -364,16 +363,18 @@ class _Superblock(object):
     featuresCompatible = 0
     featuresIncompatible = 2
     featuresReadOnlyCompatible = 1
-    volumeId = uuid4().bytes
-    volName = "0".zfill(16)
-    lastMountPath = "/{0}".format("0".zfill(63))
+    volName = "{0}".format(pack("B", 0))
+    lastMountPath = "/{0}".format(pack("B", 0))
     
-    sbBytes = pack("<7Ii5I6H4I2HI2H3I16s16s64s824s", numInodes, numBlocks, numResBlocks, numFreeBlocks, numFreeInodes,
+    sbBytes = pack("<7Ii5I6H4I2HI2H3I16s16s64s", numInodes, numBlocks, numResBlocks, numFreeBlocks, numFreeInodes,
                    firstBlockId, logBlockSize, logFragSize, numBlocksPerGroup, numFragsPerGroup,
                    numInodesPerGroup, timeLastMount, timeLastWrite, numMountsSinceCheck, numMountsMax,
                    magicNum, state, errorAction, revMinor, timeLastCheck, timeBetweenCheck, creatorOs,
                    revLevel, defResUid, defResGid, firstInodeIndex, inodeSize, bgNum, featuresCompatible,
-                   featuresIncompatible, featuresReadOnlyCompatible, volumeId, volName, lastMountPath, "0".zfill(824))
+                   featuresIncompatible, featuresReadOnlyCompatible, volumeId, volName, lastMountPath)
+    zeroFill = [0] * 824
+    fillFmt = ["B"] * 824
+    sbBytes = "{0}{1}".format(sbBytes, "".join(map(pack, fillFmt, zeroFill)))
     
     device.write(byteOffset, sbBytes)
 
@@ -445,10 +446,7 @@ class _Superblock(object):
     self._defResUid = fields[23]
     self._defResGid = fields[24]
 
-    if self._numBlocksPerGroup > 0:
-      self._numBlockGroups = int(ceil(self._numBlocks / self._numBlocksPerGroup))
-    else:
-      self._numBlockGroups = 0
+    self._numBlockGroups = int(ceil(float(self._numBlocks) / self._numBlocksPerGroup))
 
 
     # read additional fields

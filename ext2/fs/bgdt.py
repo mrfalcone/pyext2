@@ -112,7 +112,7 @@ class _BGDT(object):
     bgdtBytes = ""
     for bgroupNum in range(superblock.numBlockGroups):
       
-      bgroupBid = bgroupNum * superblock.blockSize * superblock.numBlocksPerGroup
+      bgroupBid = bgroupNum * superblock.numBlocksPerGroup + superblock.firstDataBlockId
       blockBitmapLocation = bgroupBid
       inodeBitmapLocation = bgroupBid + 1
       inodeTableLocation = bgroupBid + 2
@@ -169,7 +169,9 @@ class _BGDT(object):
         
       entryBytes = pack("<3I3H", blockBitmapLocation, inodeBitmapLocation, inodeTableLocation,
                         numFreeBlocks, numFreeInodes, numInodesAsDirs)
-      bgdtBytes = "{0}{1}".format(bgdtBytes, entryBytes)
+      zeros = [0] * 14
+      fmt = ["B"] * 14
+      bgdtBytes = "{0}{1}{2}".format(bgdtBytes, entryBytes, "".join(map(pack, fmt, zeros)))
     
     device.write(startPos, bgdtBytes)
     

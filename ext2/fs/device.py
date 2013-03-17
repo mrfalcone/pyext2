@@ -32,8 +32,8 @@ class _DeviceFromFile(object):
     f = open(imageFilename, "wb")
     with f:
       f.seek(numBytes-1)
-      f.write('0')
-    
+      f.write(b'0')
+      
     return cls(imageFilename)
   
   def __init__(self, filename):
@@ -44,7 +44,10 @@ class _DeviceFromFile(object):
   def mount(self):
     """Opens reading/writing from/to the device."""
     self._imageFile = open(self._imageFilename, "r+b")
-  
+    self._imageFile.seek(0, 2)
+    self._imageSize = self._imageFile.tell()
+    self._imageFile.seek(0)
+
   def unmount(self):
     """Closes reading/writing from/to the device."""
     if self._imageFile:
@@ -56,11 +59,15 @@ class _DeviceFromFile(object):
   def read(self, position, size):
     """Reads a byte string of the specified size from the specified position."""
     assert self.isMounted, "Device not mounted."
+    assert position+size <= self._imageSize, "Requested bytes out of range."
     self._imageFile.seek(position)
     return self._imageFile.read(size)
   
   def write(self, position, byteString):
     """Writes the specified byte string to the specified byte position."""
+    assert self.isMounted, "Device not mounted."
+    assert position+len(byteString) <= self._imageSize,\
+      "Invalid device position [device size: {0} bytes].".format(self._imageSize)
     self._imageFile.seek(position)
     self._imageFile.write(byteString)
     self._imageFile.flush()

@@ -7,12 +7,13 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 import inspect
+from uuid import uuid4
 from os import path, remove
 from collections import deque
 from struct import pack, unpack
 from time import time
 from math import ceil
-from ..file.directory import _openRootDirectory, _writeRootDirectory
+from ..file.directory import _openRootDirectory
 from ..error import FilesystemError
 from .superblock import _Superblock
 from .bgdt import _BGDT
@@ -108,27 +109,72 @@ class Ext2Filesystem(object):
     try:
       numBlockGroups = int(ceil(float(numBlocks) / (blockSize * 8)))
       currentTime = int(time())
+      volumeId = uuid4().bytes
       
-      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, numBlockGroups, currentTime)
-      _BGDT.new(0, superblock, device)
+      # write superblocks and BGDTs
+      superblock = _Superblock.new(1024, device, 0, blockSize, numBlocks, numBlockGroups, currentTime, volumeId)
+      bgdt = _BGDT.new(0, superblock, device)
       
       if len(superblock.copyLocations) > 0:
         for bgNum in superblock.copyLocations[1:]:
-          offset = bgNum * superblock.blocksPerGroup * blockSize
-          shadowSb = _Superblock.new(offset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime)
+          offset = 1024 + bgNum * superblock.numBlocksPerGroup * blockSize
+          shadowSb = _Superblock.new(offset, device, bgNum, blockSize, numBlocks, numBlockGroups, currentTime, volumeId)
           _BGDT.new(bgNum, shadowSb, device)
+
+
+      # write root directory
+      rootInodeOffset = bgdt.entries[0].inodeTableLocation * superblock.blockSize + superblock.inodeSize
+      zeroFill = [0] * (superblock.inodeSize - 26)
+      fillFmt = ["B"] * (superblock.inodeSize - 26)
+      uid = 0
+      gid = 0
+      mode = 0
+      mode |= 0x4000 # set directory
+      mode |= 0x0100 # user read
+      mode |= 0x0080 # user write
+      mode |= 0x0040 # user execute
+      mode |= 0x0020 # group read
+      mode |= 0x0008 # group execute
+      mode |= 0x0004 # others read
+      mode |= 0x0001 # others execute
+      rootInodeBytes = pack("<2HI4IH", mode, uid, 0, currentTime, currentTime, currentTime, 0, gid)
+      rootInodeBytes = "{0}{1}".format(rootInodeBytes, "".join(map(pack, fillFmt, zeroFill)))
+      device.write(rootInodeOffset, rootInodeBytes)
       
-      # _writeRootDirectory(self)
+      superblock._saveCopies = True
+      bgdt.entries[0].numInodesAsDirs += 1
       
-    except Exception as e:
+      fs = cls(device)
+      fs._superblock = superblock
+      fs._bgdt = bgdt
+      fs._isValid = True
+      
+      rootBid = fs._allocateBlock(True)
+      defaultEntries = pack("<IHBB1s3xIHBB2s", 2, 12, 1, 0, ".", 2, 12, 2, 0, "..")
+      fs._writeToBlock(rootBid, 0, defaultEntries)
+      
+      rootInode = fs._readInode(2)
+      rootInode.numLinks += 2
+      rootInode.assignNextBlockId(rootBid)
+      rootInode.size += blockSize
+
+
+      # write lost and found directory
+      lfDir = fs.rootDir.makeDirectory("lost+found")
+      while lfDir._inode.numDataBlocks < 8:
+        lfDir._inode.assignNextBlockId(fs._allocateBlock(True))
+        lfDir._inode.size += blockSize
+
+      
+      device.unmount()
+      
+    except Exception:
       if device.isMounted:
         device.unmount()
       if path.exists(imageFilename):
         remove(imageFilename)
-      raise e
+      raise
 
-    device.unmount()
-    
     return cls(device)
     
   
@@ -174,7 +220,8 @@ class Ext2Filesystem(object):
       if self._device.isMounted:
         self._device.unmount()
       self._isValid = False
-      raise FilesystemError("Root directory could not be read.")
+      #raise FilesystemError("Root directory could not be read.")
+      raise
   
   
   
@@ -419,7 +466,7 @@ class Ext2Filesystem(object):
     bitmapBytes = self._device.read(bitmapStartPos, bitmapSize)
     if len(bitmapBytes) < bitmapSize:
       raise FilesystemError("Invalid block bitmap.")
-    bitmap = unpack("{0}B".format(bitmapSize), bitmapBytes)
+    bitmap = unpack("<{0}B".format(bitmapSize), bitmapBytes)
 
     for byteIndex, byte in enumerate(bitmap):
       if byte != 255:
@@ -431,8 +478,9 @@ class Ext2Filesystem(object):
             bgdtEntry.numFreeBlocks -= 1
             if zeros:
               start = bid * self._superblock.blockSize
-              for i in range(self._superblock.blockSize):
-                self._device.write(start + i, pack("B", 0))
+              zeros = [0] * self._superblock.blockSize
+              fmt = ["B"] * self._superblock.blockSize
+              self._device.write(start, "".join(map(pack, fmt, zeros)))
             self._superblock.timeLastWrite = int(time())
             return bid
     
