@@ -7,6 +7,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 
 from os import fsync, path, makedirs
+from struct import pack
 from ..error import FilesystemError
 
 
@@ -32,7 +33,7 @@ class _DeviceFromFile(object):
     f = open(imageFilename, "wb")
     with f:
       f.seek(numBytes-1)
-      f.write(b'0')
+      f.write(pack("B", 0))
       
     return cls(imageFilename)
   

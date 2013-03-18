@@ -116,7 +116,7 @@ class Ext2Filesystem(object):
       
       if len(superblock.copyLocations) > 0:
         for bgNum in superblock.copyLocations[1:]:
-          offset = 1024 + bgNum * superblock.numBlocksPerGroup * blockSize
+          offset = (bgNum * superblock.numBlocksPerGroup + superblock.firstDataBlockId) * blockSize
           shadowSb = _Superblock.new(offset, device, bgNum, blockSize, numBlocks, currentTime, volumeId)
           _BGDT.new(bgNum, shadowSb, device)
 
@@ -140,7 +140,7 @@ class Ext2Filesystem(object):
       rootInodeBytes = "{0}{1}".format(rootInodeBytes, "".join(map(pack, fillFmt, zeroFill)))
       device.write(rootInodeOffset, rootInodeBytes)
       
-      #superblock._saveCopies = True
+      superblock._saveCopies = True
       bgdt.entries[0].numInodesAsDirs += 1
       
       fs = cls(device)
@@ -166,7 +166,6 @@ class Ext2Filesystem(object):
         fs._writeToBlock(newBid, 4, pack("<H", blockSize))
         lfDir._inode.size += blockSize
 
-      
       device.unmount()
       
     except Exception:
@@ -296,7 +295,7 @@ class Ext2Filesystem(object):
       
       # evaluate superblock copy consistency
       try:
-        startPos = 1024 + groupId * self._superblock.numBlocksPerGroup * self._superblock.blockSize
+        startPos = (groupId * self._superblock.numBlocksPerGroup + self._superblock.firstDataBlockId) * self._superblock.blockSize
         sbCopy = _Superblock.read(startPos, self._device)
         sbCopyMembers = dict(inspect.getmembers(sbCopy))
       except:

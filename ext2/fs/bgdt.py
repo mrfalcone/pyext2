@@ -104,18 +104,17 @@ class _BGDT(object):
     """Creates a new BGDT at the specified block group number, along with bitmaps,
     and returns the new object."""
 
-    groupStart = bgNumCopy * superblock.numBlocksPerGroup * superblock.blockSize
-    startPos = groupStart + (superblock.blockSize * (superblock.firstDataBlockId + 1))
+    startPos = (bgNumCopy * superblock.numBlocksPerGroup + superblock.firstDataBlockId + 1) * superblock.blockSize
     numBgdtBlocks = int(ceil(float(superblock.numBlockGroups * 32) / superblock.blockSize))
     inodeTableBlocks = int(ceil(float(superblock.numInodesPerGroup * superblock.inodeSize) / superblock.blockSize))
 
     bgdtBytes = ""
     for bgroupNum in range(superblock.numBlockGroups):
       
-      bgroupBid = bgroupNum * superblock.numBlocksPerGroup + superblock.firstDataBlockId
-      blockBitmapLocation = bgroupBid
-      inodeBitmapLocation = bgroupBid + 1
-      inodeTableLocation = bgroupBid + 2
+      bgroupStartBid = bgroupNum * superblock.numBlocksPerGroup + superblock.firstDataBlockId
+      blockBitmapLocation = bgroupStartBid
+      inodeBitmapLocation = bgroupStartBid + 1
+      inodeTableLocation = bgroupStartBid + 2
       numInodesAsDirs = 0
 
       numUsedBlocks = 2 + inodeTableBlocks
@@ -132,10 +131,10 @@ class _BGDT(object):
       numFreeInodes = superblock.numInodesPerGroup - numUsedInodes
         
       
-      if bgroupNum != superblock.numBlocksPerGroup - 1: # if not the final block group
+      if bgroupNum != superblock.numBlockGroups - 1: # if not the final block group
         numTotalBlocksInGroup = superblock.numBlocksPerGroup
       else:
-        numTotalBlocksInGroup = superblock.numBlocks - (bgroupNum * superblock.numBlocksPerGroup)
+        numTotalBlocksInGroup = superblock.numBlocks - bgroupStartBid
 
       numFreeBlocks = numTotalBlocksInGroup - numUsedBlocks
 
@@ -154,12 +153,12 @@ class _BGDT(object):
           blockBitmap[bitmapIndex] |= 1
           if (i+1) % 8 == 0:
             bitmapIndex += 1
-        bitmapIndex = -1
-        for i in range(superblock.blockSize - numTotalBlocksInGroup): # write end padding
-          blockBitmap[bitmapIndex] <<= 1
-          blockBitmap[bitmapIndex] |= 1
-          if (i+1) % 8 == 0:
-            bitmapIndex -= 1
+        
+        # write end padding
+        padBitIndex = numTotalBlocksInGroup
+        while padBitIndex < superblock.blockSize:
+          blockBitmap[padBitIndex >> 8] |= (1 << (padBitIndex & 0x07))
+          padBitIndex += 1
         blockBitmapBytes = "".join(map(pack, fmt, blockBitmap))
         device.write(blockBitmapLocation * superblock.blockSize, blockBitmapBytes)
 
@@ -187,8 +186,7 @@ class _BGDT(object):
   @classmethod
   def read(cls, groupId, superblock, device):
     """Reads a BDGT at the specified group number and returns the new object."""
-    groupStart = groupId * superblock.numBlocksPerGroup * superblock.blockSize
-    startPos = groupStart + (superblock.blockSize * (superblock.firstDataBlockId + 1))
+    startPos = (groupId * superblock.numBlocksPerGroup + superblock.firstDataBlockId + 1) * superblock.blockSize
     tableSize = superblock.numBlockGroups * 32
     bgdtBytes = device.read(startPos, tableSize)
     if len(bgdtBytes) < tableSize:

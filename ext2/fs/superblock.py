@@ -310,8 +310,18 @@ class _Superblock(object):
   def new(cls, byteOffset, device, bgNum, blockSize, numBlocks, currentTime, volumeId):
     """Creates a new superblock at the byte offset in the specified image file, and returns
     the new superblock object."""
-    
-    numBlockGroups = int(ceil(float(numBlocks) / (blockSize * 8)))
+
+    firstInodeIndex = 11
+    inodeSize = 128
+    numInodesPerGroup = blockSize * 8
+    numResBlocks = int(numBlocks * 0.05)
+    numBlocksPerGroup = blockSize * 8
+    numBlockGroups = int(ceil(float(numBlocks) / numBlocksPerGroup))
+
+    if blockSize > 1024:
+      firstBlockId = 0
+    else:
+      firstBlockId = 1
     
     copyBlockGroupIds = []
     if numBlockGroups > 1:
@@ -329,25 +339,34 @@ class _Superblock(object):
         copyBlockGroupIds.append(last7)
         last7 *= 7
 
-    firstInodeIndex = 11
-    inodeSize = 128
-    numInodesPerGroup = blockSize * 8
-    numInodes = numInodesPerGroup * numBlockGroups
-    numResBlocks = int(numBlocks * 0.05)
-    numFreeInodes = numInodes - (firstInodeIndex - 1)
     bgdtBlocks = int(ceil(float(numBlockGroups * 32) / blockSize))
     inodeTableBlocks = int(ceil(float(numInodesPerGroup * inodeSize) / blockSize))
-    numFreeBlocks = numBlocks - inodeTableBlocks * numBlockGroups - 2 * numBlockGroups - (1 + bgdtBlocks) * (len(copyBlockGroupIds) + 1)
+    numFreeBlocks = (numBlocks - firstBlockId - inodeTableBlocks * numBlockGroups - 2 * numBlockGroups -
+                    (1 + bgdtBlocks) * (len(copyBlockGroupIds) + 1))
+    
+    # if the final block group doesn't have enough space for bookkeeping blocks, remove it
+    lastBgId = numBlockGroups - 1
+    overhead = 2 + inodeTableBlocks
+    if lastBgId in copyBlockGroupIds:
+      overhead += (1 + bgdtBlocks)
+    if overhead > numBlocks - (lastBgId * numBlocksPerGroup + firstBlockId):
+      if lastBgId in copyBlockGroupIds:
+        copyBlockGroupIds.remove(lastBgId)
+      numBlockGroups -= 1
+      numBlocks = numBlockGroups * numBlocksPerGroup
+      bgdtBlocks = int(ceil(float(numBlockGroups * 32) / blockSize))
+      numFreeBlocks = (numBlocks - firstBlockId - inodeTableBlocks * numBlockGroups - 2 * numBlockGroups -
+                      (1 + bgdtBlocks) * (len(copyBlockGroupIds) + 1))
+    
     if numFreeBlocks < 10:
       raise FilesystemError("Not enough blocks specified.")
-    if blockSize > 1024:
-      firstBlockId = 0
-    else:
-      firstBlockId = 1
+
+    numInodes = numInodesPerGroup * numBlockGroups
+    numFreeInodes = numInodes - (firstInodeIndex - 1)
+    
     logBlockSize = blockSize >> 11
     logFragSize = blockSize >> 11
-    numBlocksPerGroup = blockSize * 8
-    numFragsPerGroup = blockSize * 8
+    numFragsPerGroup = numBlocksPerGroup
     if numBlocks < numBlocksPerGroup:
       numBlocksPerGroup = numBlocks
       numFragsPerGroup = numBlocks
