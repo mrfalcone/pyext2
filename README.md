@@ -2,8 +2,9 @@ PyExt2
 ======
 An [Ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python.
 
-Supports the following functions with variable block sizes:
+Features:
 
+* Variable block sizes
 * Reading files
 * Writing files
 * Making directories
@@ -11,6 +12,7 @@ Supports the following functions with variable block sizes:
 * Moving/renaming files and directories
 * Copying files within filesystem
 * Creating hard and symbolic links
+* Creating new filesystem images
 
 
 License
