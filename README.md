@@ -1,18 +1,13 @@
 PyExt2
 ======
-An [Ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python.
+An [Ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python. A live demo of the project can be seen online at [extbot.com](http://extbot.com).
 
 Features:
 
-* Variable block sizes
-* Reading files
-* Writing files
-* Making directories
-* Removing files and directories
-* Moving/renaming files and directories
-* Copying files within filesystem
-* Creating hard and symbolic links
-* Creating new filesystem images
+* Supports variable block sizes
+* Read/write/move/delete files and directories
+* Create hard and symbolic links
+* Create new filesystem images from scratch
 
 
 License
@@ -27,11 +22,13 @@ Requires Python 2.6 or 2.7. Using the module requires access to a filesystem ima
 
 Usage
 -----
-To run the module, use the diskbot script:
+To run the module, use the diskbot script.
+
+The command:
 
 `diskbot ext2_image_file.img -s`
 
-will open a shell for interacting with the filesystem image.
+will open a shell for interacting with the filesystem image and the command:
 
 `diskbot -h`
 
@@ -40,4 +37,4 @@ will display usage options for the script.
 
 Acknowledgement
 ---------------
-Thanks to Dave Poirier for making available the [ext2-doc project](http://www.nongnu.org/ext2-doc/). It has been an enormous help in developing this project.
+Thanks to Dave Poirier for making available the [ext2-doc project](http://www.nongnu.org/ext2-doc/). It has been a great help in developing this project.
