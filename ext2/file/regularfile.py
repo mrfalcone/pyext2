@@ -37,13 +37,17 @@ class Ext2RegularFile(Ext2File):
       yield block
 
 
-  def write(self, byteString):
-    """Writes the specified string of bytes to the end of the file."""
+  def write(self, byteString, position = None):
+    """Writes the specified string of bytes to the specified position in the file, or at the end
+    if no position is specified"""
+    
+    if position is None:
+      position = self._inode.size
     
     written = 0
     while written < len(byteString):
-      blockIndex = self._inode.size / self._fs.blockSize
-      byteIndex = self._inode.size % self._fs.blockSize
+      blockIndex = position / self._fs.blockSize
+      byteIndex = position % self._fs.blockSize
       bid = self._inode.lookupBlockId(blockIndex)
       if bid == 0:
         bid = self._fs._allocateBlock()
@@ -54,5 +58,6 @@ class Ext2RegularFile(Ext2File):
       byteString = byteString[numBytesToWrite:]
       self._fs._writeToBlock(bid, byteIndex, bytesToWrite)
       written += numBytesToWrite
-      self._inode.size += numBytesToWrite
+      position += numBytesToWrite
+      self._inode.size = max(position + numBytesToWrite, self._inode.size)
     

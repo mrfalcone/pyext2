@@ -70,16 +70,6 @@ class Ext2File(object):
     return self._inode.numLinks
 
   @property
-  def uid(self):
-    """Gets the uid of the file owner."""
-    return self._inode.uid
-
-  @property
-  def gid(self):
-    """Gets the gid of the file owner."""
-    return self._inode.gid
-
-  @property
   def size(self):
     """Gets the size of the file in bytes."""
     return self._inode.size
@@ -128,7 +118,30 @@ class Ext2File(object):
   def permissions(self):
     """Gets this file object's permissions bitmap."""
     return (self._inode.mode & 0x1FF) # ignore everything but permissions
+  @permissions.setter
+  def permissions(self, value):
+    """Sets this file object's permissions bitmap."""
+    mode = self._inode.mode & 0xFE00 # save non-permission bits of current mode
+    mode |= (value & 0x1FF) # set permission bits from new mode
+    self._inode.mode = mode
 
+  @property
+  def uid(self):
+    """Gets the uid of the file owner."""
+    return self._inode.uid
+  @uid.setter
+  def uid(self, value):
+    """Sets the uid of the file owner."""
+    self._inode.uid = value
+
+  @property
+  def gid(self):
+    """Gets the gid of the file owner."""
+    return self._inode.gid
+  @gid.setter
+  def gid(self, value):
+    """Sets the gid of the file owner."""
+    self._inode.gid = value
 
   def __init__(self, dirEntry, inode, fs):
     """Constructs a new file object from the specified entry and inode."""
@@ -188,7 +201,7 @@ class Ext2File(object):
     if (self._inode.mode & 0x0001) != 0:
       self._modeStr[9] = "x"
     
-
+  
   def files(self):
     """Generates a list of files in the directory."""
     raise InvalidFileTypeError()
@@ -228,8 +241,9 @@ class Ext2File(object):
     raise InvalidFileTypeError()
 
 
-  def write(self, byteString):
-    """Writes the specified string of bytes to the end of the file."""
+  def write(self, byteString, position):
+    """Writes the specified string of bytes to the specified position in the file, or at the end
+    if no position is specified"""
     raise InvalidFileTypeError()
 
 

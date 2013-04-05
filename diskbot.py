@@ -202,7 +202,7 @@ def printShellHelp():
   print
   print "{0}{1}".format("mkdir name".ljust(sp), "Makes a new directory with the specified name")
   print
-  print "{0}{1}".format("rm [-r] name".ljust(sp), "Removes the specified file or directory. The optional")
+  print "{0}{1}".format("rm [-r] filename".ljust(sp), "Removes the specified file or directory. The optional")
   print "{0}{1}".format("".ljust(sp), "-r flag forces recursive deletion of directories.")
   print
   print "{0}{1}".format("mv source dest".ljust(sp), "Moves the specified source file or directory to")
@@ -214,6 +214,10 @@ def printShellHelp():
   print "{0}{1}".format("ln [-s] source name".ljust(sp), "Creates a link to the source with the specified ")
   print "{0}{1}".format("".ljust(sp), "name. If -s is specified, the new link is")
   print "{0}{1}".format("".ljust(sp), "symbolic. Hard links require source to exist.")
+  print
+  print "{0}{1}".format("chown uid filename".ljust(sp), "Changes the owner uid of the file to the given uid.")
+  print "{0}{1}".format("chgrp gid filename".ljust(sp), "Changes the owner gid of the file to the given gid.")
+  print "{0}{1}".format("chmod octmode filename".ljust(sp), "Changes the mode of the file to the one specified.")
   print
   print "{0}{1}".format("help".ljust(sp), "Prints this message.")
   print "{0}{1}".format("exit".ljust(sp), "Exits shell mode.")
@@ -573,7 +577,47 @@ def shell(fs):
           name = parsed[1]
           sourceFile = parentDir.getFileAt(name, False)
           destDir.makeHardLink(name, sourceFile)
+
+
+      elif cmd == "chown":
+        if len(parameters) != 2:
+          raise ShellError("Invalid parameters.")
+        uid = int(parameters[0])
+        name = parameters[1]
+        if len(name) == 0:
+          raise ShellError("No filename specified.")
+        chFile = getFileObject(fs, workingDir, name, True)
+        chFile.uid = uid
+
+
+      elif cmd == "chgrp":
+        if len(parameters) != 2:
+          raise ShellError("Invalid parameters.")
+        gid = int(parameters[0])
+        name = parameters[1]
+        if len(name) == 0:
+          raise ShellError("No filename specified.")
+        chFile = getFileObject(fs, workingDir, name, True)
+        chFile.gid = gid
+
+
+      elif cmd == "chmod":
+        if len(parameters) != 2:
+          raise ShellError("Invalid parameters.")
+        octmode = parameters[0]
+        try:
+          mode = (int(octmode[0]) & 0x7) << 6
+          mode |= (int(octmode[1]) & 0x7) << 3
+          mode |= (int(octmode[2]) & 0x7)
+        except:
+          raise ShellError("Invalid mode specified.")
+        name = parameters[1]
+        if len(name) == 0:
+          raise ShellError("No filename specified.")
+        chFile = getFileObject(fs, workingDir, name, True)
+        chFile.permissions = mode
         
+      
       else:
         raise ShellError("Command not recognized.")
     except ShellError as e:
