@@ -12,7 +12,6 @@ from os import path, remove
 from collections import deque
 from struct import pack, unpack
 from time import time
-from math import ceil
 from ..file.directory import _openRootDirectory
 from ..error import FilesystemError
 from .superblock import _Superblock
@@ -278,6 +277,7 @@ class Ext2Filesystem(object):
     assert self.isValid, "Filesystem is not valid."
     
     report = InformationReport()
+    checkPassed = True
     
     # basic integrity checks
     report.hasMagicNumber = self._superblock.isValidExt2
@@ -286,52 +286,79 @@ class Ext2Filesystem(object):
     report.messages = []
     
     
-    # check consistency across superblock/group table copies
-    sbMembers = dict(inspect.getmembers(self._superblock))
-    bgtMembersEntries = map(dict, map(inspect.getmembers, self._bgdt.entries))
-    for groupId in self._superblock.copyLocations:
-      if groupId == 0:
-        continue
+    # check consistency across superblock/group table copies by comparing all copies to first shadow copy
+    if(len(self._superblock.copyLocations) > 1):
+      sbCopiesGood = True
+      bgdtCopiesGood = True
       
-      # evaluate superblock copy consistency
-      try:
-        startPos = (groupId * self._superblock.numBlocksPerGroup + self._superblock.firstDataBlockId) * self._superblock.blockSize
-        sbCopy = _Superblock.read(startPos, self._device)
-        sbCopyMembers = dict(inspect.getmembers(sbCopy))
-      except:
-        report.messages.append("Superblock at block group {0} could not be read.".format(groupId))
-        continue
-      for m in sbMembers:
-        if m.startswith("_"):
+      firstSbCopyStartPos = (self._superblock.copyLocations[1] * self._superblock.numBlocksPerGroup
+                             + self._superblock.firstDataBlockId) * self._superblock.blockSize
+      firstSbCopy = _Superblock.read(firstSbCopyStartPos, self._device)
+
+      firstBgtCopy = _BGDT.read(self._superblock.copyLocations[1], firstSbCopy, self._device)
+
+      sbMembers = dict(inspect.getmembers(firstSbCopy))
+      bgtMembersEntries = map(dict, map(inspect.getmembers, firstBgtCopy.entries))
+      
+      for groupId in self._superblock.copyLocations:
+        if groupId == 0:
           continue
-        if not m in sbCopyMembers:
-          report.messages.append("Superblock at block group {0} has missing field '{1}'.".format(groupId, m))
-        elif not sbCopyMembers[m] == sbMembers[m]:
-          report.messages.append("Superblock at block group {0} has inconsistent field '{1}' with value '{2}' (primary value is '{3}').".format(groupId, m, sbCopyMembers[m], sbMembers[m]))
-      
-      # evaluate block group descriptor table consistency
-      try:
-        bgtCopy = _BGDT.read(groupId, self._superblock, self._device)
-        bgtCopyMembersEntries = map(dict, map(inspect.getmembers, bgtCopy.entries))
-      except:
-        report.messages.append("Block group descriptor table at block group {0} could not be read.".format(groupId))
-        continue
-      if len(bgtCopyMembersEntries) != len(bgtMembersEntries):
-        report.messages.append("Block group descriptor table at block group {0} has {1} entries while primary has {2}.".format(groupId, len(bgtCopyMembersEntries), len(bgtMembersEntries)))
-        continue
-      for entryNum in range(len(bgtMembersEntries)):
-        bgtPrimaryEntryMembers = bgtMembersEntries[entryNum]
-        bgtCopyEntryMembers = bgtCopyMembersEntries[entryNum]
-        for m in bgtPrimaryEntryMembers:
+        
+        # evaluate superblock copy consistency
+        try:
+          startPos = (groupId * self._superblock.numBlocksPerGroup + self._superblock.firstDataBlockId) * self._superblock.blockSize
+          sbCopy = _Superblock.read(startPos, self._device)
+          sbCopyMembers = dict(inspect.getmembers(sbCopy))
+        except:
+          report.messages.append("Superblock at block group {0} could not be read.".format(groupId))
+          sbCopiesGood = False
+          continue
+        for m in sbMembers:
           if m.startswith("_"):
             continue
-          if not m in bgtCopyEntryMembers:
-            report.messages.append("Block group descriptor table entry {0} at block group {1} has missing field '{2}'.".format(entryNum, groupId, m))
-          elif not bgtCopyEntryMembers[m] == bgtPrimaryEntryMembers[m]:
-            report.messages.append("Block group descriptor table entry {0} at block group {1} has inconsistent field '{2}' with value '{3}' (primary value is '{4}').".format(entryNum, groupId, m, bgtCopyEntryMembers[m], bgtPrimaryEntryMembers[m]))
-    
-    
+          if not m in sbCopyMembers:
+            report.messages.append("Superblock at block group {0} has missing field '{1}'.".format(groupId, m))
+            sbCopiesGood = False
+          elif not sbCopyMembers[m] == sbMembers[m]:
+            report.messages.append("Superblock at block group {0} has inconsistent field '{1}' with value '{2}' (first shadow copy has value '{3}').".format(groupId, m, sbCopyMembers[m], sbMembers[m]))
+            sbCopiesGood = False
+        
+        # evaluate block group descriptor table consistency
+        try:
+          bgtCopy = _BGDT.read(groupId, self._superblock, self._device)
+          bgtCopyMembersEntries = map(dict, map(inspect.getmembers, bgtCopy.entries))
+        except:
+          report.messages.append("Block group descriptor table at block group {0} could not be read.".format(groupId))
+          bgdtCopiesGood = False
+          continue
+        if len(bgtCopyMembersEntries) != len(bgtMembersEntries):
+          report.messages.append("Block group descriptor table at block group {0} has {1} entries while first shadow copy has {2}.".format(groupId, len(bgtCopyMembersEntries), len(bgtMembersEntries)))
+          bgdtCopiesGood = False
+          continue
+        for entryNum in range(len(bgtMembersEntries)):
+          bgtPrimaryEntryMembers = bgtMembersEntries[entryNum]
+          bgtCopyEntryMembers = bgtCopyMembersEntries[entryNum]
+          for m in bgtPrimaryEntryMembers:
+            if m.startswith("_"):
+              continue
+            if not m in bgtCopyEntryMembers:
+              report.messages.append("Block group descriptor table entry {0} at block group {1} has missing field '{2}'.".format(entryNum, groupId, m))
+              bgdtCopiesGood = False
+            elif not bgtCopyEntryMembers[m] == bgtPrimaryEntryMembers[m]:
+              report.messages.append("Block group descriptor table entry {0} at block group {1} has inconsistent field '{2}' with value '{3}' (first shadow copy has value '{4}').".format(entryNum, groupId, m, bgtCopyEntryMembers[m], bgtPrimaryEntryMembers[m]))
+              bgdtCopiesGood = False
+      
+      if sbCopiesGood:
+        report.messages.append("Shadow superblock copies are all consistent.")
+      if bgdtCopiesGood:
+        report.messages.append("Shadow BGDT entries are all consistent.")
+
+      checkPassed = sbCopiesGood and bgdtCopiesGood
+      
+      
     # validate inode and block references
+    blocksGood = True
+    inodesGood = True
     inodes = self.__getUsedInodes()
     inodesReachable = dict(zip(inodes, [False] * len(inodes)))
     blocks = self.__getUsedBlocks()
@@ -350,6 +377,7 @@ class Ext2Filesystem(object):
         # check inode references
         if not (f.isValid and f.inodeNum in inodesReachable):
           report.messages.append("The filesystem contains an entry for {0} but its inode is not marked as used (inode number {1}).".format(f.absolutePath, f.inodeNum))
+          inodesGood = False
         else:
           inodesReachable[f.inodeNum] = True
         
@@ -358,14 +386,29 @@ class Ext2Filesystem(object):
           for bid in f._inode.usedBlocks():
             if not bid in blocksAccessedBy:
               report.messages.append("The file {0} is referencing a block that is not marked as used by the filesystem (block id: {1})".format(f.absolutePath, bid))
+              blocksGood = False
             elif blocksAccessedBy[bid]:
               report.messages.append("Block id {0} is being referenced by both {1} and {2}.".format(bid, blocksAccessedBy[bid], f.absolutePath))
+              blocksGood = False
             else:
               blocksAccessedBy[bid] = f.absolutePath
+    
     
     for inodeNum in inodesReachable:
       if not inodesReachable[inodeNum]:
         report.messages.append("Inode number {0} is marked as used but is not reachable from a directory entry.".format(inodeNum))
+        inodesGood = False
+
+    if blocksGood:
+      report.messages.append("Block references look good.")
+      
+    if inodesGood:
+      report.messages.append("Inode references look good.")
+    
+    checkPassed = checkPassed and blocksGood and inodesGood
+    
+    if checkPassed:
+      report.messages.append("[SUCCESS] Integrity check passed.")
     
     return report
   

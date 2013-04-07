@@ -163,10 +163,7 @@ def generateIntegrityReport(fs, showWaitIndicator = True):
     pairs.append( ("Contains magic number", "{0}".format(report.hasMagicNumber)) )
     pairs.append( ("Num superblock copies", "{0}".format(report.numSuperblockCopies)) )
     pairs.append( ("Superblock copy locations", "Block groups {0}".format(",".join(map(str,report.copyLocations)))) )
-    messages = list(report.messages)
-    if len(messages) == 0:
-      messages.append("Integrity check passed.")
-    pairs.append( ("Diagnostic messages", messages) )
+    pairs.append( ("Report messages", list(report.messages)) )
     
   else:
     raise FilesystemNotSupportedError()
