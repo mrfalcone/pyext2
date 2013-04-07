@@ -12,6 +12,7 @@ from os import path, remove
 from collections import deque
 from struct import pack, unpack
 from time import time
+from math import ceil
 from ..file.directory import _openRootDirectory
 from ..error import FilesystemError
 from .superblock import _Superblock
@@ -61,6 +62,17 @@ class Ext2Filesystem(object):
     if not self.isValid:
       raise FilesystemError("Filesystem is not valid.")
     return self.totalSpace - self.freeSpace
+
+  @property
+  def totalFileSpace(self):
+    """Gets the total number of bytes available for files."""
+    if not self.isValid:
+      raise FilesystemError("Filesystem is not valid.")
+    bgdtBlocks = int(ceil(float(self._superblock.numBlockGroups * 32) / self._superblock.blockSize))
+    inodeTableBlocks = int(ceil(float(self._superblock.numInodesPerGroup * self._superblock.inodeSize) / self._superblock.blockSize))
+    numFileBlocks = (self._superblock.numBlocks - self._superblock.firstDataBlockId - inodeTableBlocks * self._superblock.numBlockGroups
+                     - 2 * self._superblock.numBlockGroups - (1 + bgdtBlocks) * (len(self._superblock.copyLocations) + 1))
+    return numFileBlocks * self._superblock.blockSize
   
   @property
   def blockSize(self):
@@ -239,6 +251,8 @@ class Ext2Filesystem(object):
     assert self.isValid, "Filesystem is not valid."
     
     report = InformationReport()
+
+    report.spaceUsed = 0
     
     # count files and directories
     report.numRegFiles = 0
@@ -251,6 +265,8 @@ class Ext2Filesystem(object):
       for f in d.files():
         if f.name == "." or f.name == "..":
           continue
+        for b in f._inode.usedBlocks():
+          report.spaceUsed += self._superblock.blockSize
         if f.isDir:
           report.numDirs += 1
           q.append(f)

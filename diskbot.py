@@ -128,8 +128,8 @@ def generateDetailedInfo(fs, showWaitIndicator = True):
     pairs.append( ("Num regular files", "{0}".format(report.numRegFiles)) )
     pairs.append( ("Num directories", "{0}".format(report.numDirs)) )
     pairs.append( ("Num symlinks", "{0}".format(report.numSymlinks)) )
-    pairs.append( ("Space used for files", "{0} bytes".format("-")) )
-    pairs.append( ("Space unused for files", "{0} bytes".format("-")) )
+    pairs.append( ("Space used for files", "{0} bytes".format(report.spaceUsed)) )
+    pairs.append( ("Remaining space available for files", "{0} bytes".format(fs.totalFileSpace - report.spaceUsed)) )
     for i,groupReport in enumerate(report.groupReports):
       groupInfo = []
       groupInfo.append("Free inodes: {0}".format(groupReport.numFreeInodes))
