@@ -1,6 +1,6 @@
 PyExt2
 ======
-An [Ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python. A live demo of the project can be seen online at [extbot.com](http://extbot.com).
+An [ext2 filesystem](http://wikipedia.org/wiki/Ext2) interface written entirely in Python. A live demo of the project can be seen online at [extbot.com](http://extbot.com).
 
 Features:
 

@@ -48,16 +48,19 @@ class Ext2RegularFile(Ext2File):
     while written < len(byteString):
       blockIndex = position / self._fs.blockSize
       byteIndex = position % self._fs.blockSize
-      bid = self._inode.lookupBlockId(blockIndex)
-      if bid == 0:
+
+      while blockIndex >= self._inode.numDataBlocks:
         bid = self._fs._allocateBlock()
         self._inode.assignNextBlockId(bid)
+      
+      bid = self._inode.lookupBlockId(blockIndex)
       
       numBytesToWrite = min(len(byteString), self._fs.blockSize - byteIndex)
       bytesToWrite = byteString[:numBytesToWrite]
       byteString = byteString[numBytesToWrite:]
       self._fs._writeToBlock(bid, byteIndex, bytesToWrite)
+      self._inode.size = max(position + numBytesToWrite, self._inode.size)
       written += numBytesToWrite
       position += numBytesToWrite
-      self._inode.size = max(position + numBytesToWrite, self._inode.size)
+      
     
