@@ -44,8 +44,9 @@ class Ext2RegularFile(Ext2File):
     if position is None:
       position = self._inode.size
     
+    totalLength = len(byteString)
     written = 0
-    while written < len(byteString):
+    while written < totalLength:
       blockIndex = position / self._fs.blockSize
       byteIndex = position % self._fs.blockSize
 
