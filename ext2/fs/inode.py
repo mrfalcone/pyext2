@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2013, Michael R. Falcone"
 
 from struct import pack, unpack, unpack_from
 from time import time
+from math import ceil
 from ..error import FilesystemError
 
 
@@ -41,9 +42,14 @@ class _Inode(object):
     return self._blocks
 
   @property
-  def numDataBlocks(self):
-    """Gets the number of data blocks used by the inode."""
+  def numBlocks(self):
+    """Gets the total number of blocks used by the inode."""
     return self._numDataBlocks
+  
+  @property
+  def numDataBlocks(self):
+    """Gets the number of blocks used for only data inside the inode."""
+    return int(ceil(self._size / self._superblock.blockSize))
 
   @property
   def mode(self):
@@ -344,29 +350,35 @@ class _Inode(object):
   def lookupBlockId(self, index):
     """Looks up the block id corresponding to the block at the specified index,
     where the block index is the absolute block number within the data."""
+    
+    if index >= self._numDataBlocks:
+      return 0
+    
+    try:
+      if index < self._numDirectBlocks:
+        return self.blocks[index]
 
-    if index < self._numDirectBlocks:
-      return self.blocks[index]
+      elif index < self._numIndirectBlocks:
+        directList = self.__getBidListAtBid(self.blocks[12])
+        return directList[index - self._numDirectBlocks]
 
-    elif index < self._numIndirectBlocks:
-      directList = self.__getBidListAtBid(self.blocks[12])
-      return directList[index - self._numDirectBlocks]
+      elif index < self._numDoublyIndirectBlocks:
+        indirectList = self.__getBidListAtBid(self.blocks[13])
+        index -= self._numIndirectBlocks # get index from start of doubly indirect list
+        directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
+        return directList[index % self._numIdsPerBlock]
 
-    elif index < self._numDoublyIndirectBlocks:
-      indirectList = self.__getBidListAtBid(self.blocks[13])
-      index -= self._numIndirectBlocks # get index from start of doubly indirect list
-      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
-      return directList[index % self._numIdsPerBlock]
-
-    elif index < self._numTreblyIndirectBlocks:
-      doublyIndirectList = self.__getBidListAtBid(self.blocks[14])
-      index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
-      indirectList = self.__getBidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
-      index %= (self._numIdsPerBlock ** 2) # get index from start of indirect list
-      directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
-      return directList[index % self._numIdsPerBlock]
-
-    raise FilesystemError("Block not found.")
+      elif index < self._numTreblyIndirectBlocks:
+        doublyIndirectList = self.__getBidListAtBid(self.blocks[14])
+        index -= self._numDoublyIndirectBlocks # get index from start of trebly indirect list
+        indirectList = self.__getBidListAtBid(doublyIndirectList[index / (self._numIdsPerBlock ** 2)])
+        index %= (self._numIdsPerBlock ** 2) # get index from start of indirect list
+        directList = self.__getBidListAtBid(indirectList[index / self._numIdsPerBlock])
+        return directList[index % self._numIdsPerBlock]
+      
+      return 0
+    except IndexError:
+      return 0
   
   
   
@@ -384,77 +396,92 @@ class _Inode(object):
 
 
   def assignNextBlockId(self, bid):
-    """Assigns the given block id to this inode as the next block in use. Returns the index of
-    the new block."""
+    """Assigns the given block id to this inode as the next block in use. Returns the new number
+    of blocks."""
     
-    index = self._numDataBlocks
-    
-    if index < self._numDirectBlocks:
-      self._blocks[index] = bid
+    if self._numDataBlocks < self._numDirectBlocks:
+      self._blocks[self._numDataBlocks] = bid
+      self.__writeData(40+(self._numDataBlocks*4), pack("<I", bid))
       self._numDataBlocks += 1
-      self.__writeData(40+(index*4), pack("<I", bid))
       self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
-      return index
+      return self._numDataBlocks
+    
 
-
-    elif index < self._numIndirectBlocks:
+    elif self._numDataBlocks < self._numIndirectBlocks + 1:
       if self.blocks[12] == 0:
         self.blocks[12] = self._fs._allocateBlock(True)
+        self._numDataBlocks += 1
         self.__writeData(88, pack("<I", self.blocks[12]))
-      self.__writeToBidListAtBid(self.blocks[12], index - self._numDirectBlocks, bid)
+      self.__writeToBidListAtBid(self.blocks[12], self._numDataBlocks - self._numDirectBlocks - 1, bid)
       self._numDataBlocks += 1
       self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
-      return index
+      return self._numDataBlocks
 
 
-    elif index < self._numDoublyIndirectBlocks:
+    elif self._numDataBlocks < self._numDoublyIndirectBlocks + self._numIdsPerBlock + 2:
       if self.blocks[13] == 0:
         self.blocks[13] = self._fs._allocateBlock(True)
+        self._numDataBlocks += 1
         self.__writeData(92, pack("<I", self.blocks[13]))
       indirectList = self.__getBidListAtBid(self.blocks[13])
       
-      indirectIndex = (index - self._numIndirectBlocks) / self._numIdsPerBlock
-      directIndex = (index - self._numIndirectBlocks) % self._numIdsPerBlock
+      index = self._numDataBlocks - self._numIndirectBlocks - 2
+      indirectIndex = index / (self._numIdsPerBlock + 1)
+      directIndex = index % (self._numIdsPerBlock + 1) - 1
       
       if indirectList[indirectIndex] == 0:
         indirectList[indirectIndex] = self._fs._allocateBlock(True)
+        self._numDataBlocks += 1
         self.__writeToBidListAtBid(self.blocks[13], indirectIndex, indirectList[indirectIndex])
+        directIndex += 1
       directList = self.__getBidListAtBid(indirectList[indirectIndex])
       
       directList[directIndex] = bid
       self.__writeToBidListAtBid(indirectList[indirectIndex], directIndex, directList[directIndex])
       self._numDataBlocks += 1
       self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
-      return index
+      return self._numDataBlocks
 
 
-    elif index < self._numTreblyIndirectBlocks:
+    else:
+      index = self._numDataBlocks - self._numDoublyIndirectBlocks - self._numIdsPerBlock - 3
       if self.blocks[14] == 0:
         self.blocks[14] = self._fs._allocateBlock(True)
+        self._numDataBlocks += 1
         self.__writeData(96, pack("<I", self.blocks[14]))
+        index += 1
       doublyIndirectList = self.__getBidListAtBid(self.blocks[14])
       
-      doublyIndirectIndex = (index - self._numDoublyIndirectBlocks) / (self._numIdsPerBlock ** 2)
-      indirectIndex = ((index - self._numDoublyIndirectBlocks) % (self._numIdsPerBlock ** 2)) / self._numIdsPerBlock
-      directIndex = ((index - self._numDoublyIndirectBlocks) % (self._numIdsPerBlock ** 2)) % self._numIdsPerBlock
+      
+      numDoublyIndirectBlocks = self._numIdsPerBlock ** 2 + self._numIdsPerBlock + 1
+      doublyIndirectIndex = index / numDoublyIndirectBlocks
+      
       
       if doublyIndirectList[doublyIndirectIndex] == 0:
         doublyIndirectList[doublyIndirectIndex] = self._fs._allocateBlock(True)
+        self._numDataBlocks += 1
         self.__writeToBidListAtBid(self.blocks[14], doublyIndirectIndex, doublyIndirectList[doublyIndirectIndex])
+        index += 1
       indirectList = self.__getBidListAtBid(doublyIndirectList[doublyIndirectIndex])
+      
+      indirectIndex = ((index - numDoublyIndirectBlocks - 1) % numDoublyIndirectBlocks) / (self._numIdsPerBlock + 1)
       
       if indirectList[indirectIndex] == 0:
         indirectList[indirectIndex] = self._fs._allocateBlock(True)
+        self._numDataBlocks += 1
         self.__writeToBidListAtBid(doublyIndirectList[doublyIndirectIndex], indirectIndex, indirectList[indirectIndex])
+        index += 1
       directList = self.__getBidListAtBid(indirectList[indirectIndex])
+
+      overheadBlocks = (doublyIndirectIndex * self._numIdsPerBlock) + doublyIndirectIndex + indirectIndex + 2
+      dataBlocks = doublyIndirectIndex * self._numIdsPerBlock ** 2
+      directIndex = (index - overheadBlocks - dataBlocks) % self._numIdsPerBlock
 
       directList[directIndex] = bid
       self.__writeToBidListAtBid(indirectList[indirectIndex], directIndex, directList[directIndex])
       self._numDataBlocks += 1
       self.__writeData(28, pack("<I", self._numDataBlocks * (2 << self._superblock.logBlockSize)))
-      return index
-    
-    raise FilesystemError("No block space available.")
+      return self._numDataBlocks
 
 
 

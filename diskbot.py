@@ -365,8 +365,11 @@ def copyFile(fromFile, toDir, newFilename = None, showWaitIndicator = True):
     transferStart = clock()
     written = __copy()
     transferTime = clock() - transferStart
-
-  mbps = float(written) / (1024*1024) / transferTime
+    
+  if transferTime > 0:
+    mbps = float(written) / (1024*1024) / transferTime
+  else:
+    mbps = 0
   print "Copied {0} bytes at {1:.2f} MB/sec.".format(written, mbps)
   
 
@@ -697,7 +700,10 @@ def fetchFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
       readCount = __read()
       transferTime = clock() - transferStart
     
-    mbps = float(readCount) / (1024*1024) / transferTime
+    if transferTime > 0:
+      mbps = float(readCount) / (1024*1024) / transferTime
+    else:
+      mbps = 0
     print "Read {0} bytes at {1:.2f} MB/sec.".format(readCount, mbps)
     
     os.utime(srcPath, (srcFile.timeAccessedEpoch, srcFile.timeModifiedEpoch))
@@ -761,8 +767,11 @@ def putFile(fs, srcFilename, destDirectory, showWaitIndicator = True):
     transferStart = clock()
     written = __write()
     transferTime = clock() - transferStart
-
-  mbps = float(written) / (1024*1024) / transferTime
+  
+  if transferTime > 0:
+    mbps = float(written) / (1024*1024) / transferTime
+  else:
+    mbps = 0
   print "Wrote {0} bytes at {1:.2f} MB/sec.".format(written, mbps)
 
   

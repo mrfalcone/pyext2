@@ -76,7 +76,7 @@ class Ext2File(object):
 
   @property
   def numBlocks(self):
-    """Gets the number of data blocks used by the file on the filesystem."""
+    """Gets the number of blocks used for data in the file."""
     return self._inode.numDataBlocks
 
   @property

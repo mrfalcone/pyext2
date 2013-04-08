@@ -50,11 +50,10 @@ class Ext2RegularFile(Ext2File):
       blockIndex = position / self._fs.blockSize
       byteIndex = position % self._fs.blockSize
 
-      while blockIndex >= self._inode.numDataBlocks:
-        bid = self._fs._allocateBlock()
-        self._inode.assignNextBlockId(bid)
-      
       bid = self._inode.lookupBlockId(blockIndex)
+      while bid == 0:
+        self._inode.assignNextBlockId(self._fs._allocateBlock())
+        bid = self._inode.lookupBlockId(blockIndex)
       
       numBytesToWrite = min(len(byteString), self._fs.blockSize - byteIndex)
       bytesToWrite = byteString[:numBytesToWrite]

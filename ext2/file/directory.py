@@ -399,7 +399,7 @@ class Ext2Directory(Ext2File):
       mode = permissions
     mode |= 0x8000 # set regular file
 
-    entry = self.__makeNewEntry(name, mode, uid, gid, True, creationTime, modTime, accessTime)
+    entry = self.__makeNewEntry(name, mode, uid, gid, False, creationTime, modTime, accessTime)
     return Ext2Directory._openEntry(entry, self._fs)
 
 
