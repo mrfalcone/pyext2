@@ -97,6 +97,7 @@ def getGeneralInfo(fs):
     pairs.append( ("Ext2 revision", "{0}".format(fs.revision)) )
     pairs.append( ("Total space", "{0:.2f} MB ({1} bytes)".format(float(fs.totalSpace) / 1048576, fs.totalSpace)) )
     pairs.append( ("Used space", "{0:.2f} MB ({1} bytes)".format(float(fs.usedSpace) / 1048576, fs.usedSpace)) )
+    pairs.append( ("Total space for files", "{0:.2f} MB ({1} bytes)".format(float(fs.totalFileSpace) / 1048576, fs.totalFileSpace)) )
     pairs.append( ("Block size", "{0} bytes".format(fs.blockSize)) )
     pairs.append( ("Num inodes", "{0}".format(fs.numInodes)) )
     pairs.append( ("Num block groups", "{0}".format(fs.numBlockGroups)) )
@@ -128,12 +129,14 @@ def generateDetailedInfo(fs, showWaitIndicator = True):
     pairs.append( ("Num regular files", "{0}".format(report.numRegFiles)) )
     pairs.append( ("Num directories", "{0}".format(report.numDirs)) )
     pairs.append( ("Num symlinks", "{0}".format(report.numSymlinks)) )
-    pairs.append( ("Space used for files", "{0} bytes".format(report.spaceUsed)) )
-    pairs.append( ("Remaining space available for files", "{0} bytes".format(fs.totalFileSpace - report.spaceUsed)) )
     for i,groupReport in enumerate(report.groupReports):
       groupInfo = []
+      groupInfo.append("Block bitmap location: {0}".format(groupReport.blockBitmapLocation))
+      groupInfo.append("Inode bitmap location: {0}".format(groupReport.inodeBitmapLocation))
+      groupInfo.append("Inode table location: {0}".format(groupReport.inodeTableLocation))
       groupInfo.append("Free inodes: {0}".format(groupReport.numFreeInodes))
       groupInfo.append("Free blocks: {0}".format(groupReport.numFreeBlocks))
+      groupInfo.append("Directory inodes: {0}".format(groupReport.numInodesAsDirs))
       pairs.append( ("Block group {0}".format(i), groupInfo) )
     
   else:

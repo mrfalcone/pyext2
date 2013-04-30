@@ -281,6 +281,10 @@ class Ext2Filesystem(object):
       groupReport = InformationReport()
       groupReport.numFreeBlocks = entry.numFreeBlocks
       groupReport.numFreeInodes = entry.numFreeInodes
+      groupReport.inodeBitmapLocation = entry.inodeBitmapLocation
+      groupReport.blockBitmapLocation = entry.blockBitmapLocation
+      groupReport.inodeTableLocation = entry.inodeTableLocation
+      groupReport.numInodesAsDirs = entry.numInodesAsDirs
       report.groupReports.append(groupReport)
     
     return report
@@ -370,8 +374,9 @@ class Ext2Filesystem(object):
         report.messages.append("Shadow BGDT entries are all consistent.")
 
       checkPassed = sbCopiesGood and bgdtCopiesGood
-      
-      
+    
+    
+    
     # validate inode and block references
     blocksGood = True
     inodesGood = True
@@ -422,7 +427,72 @@ class Ext2Filesystem(object):
       report.messages.append("Inode references look good.")
     
     checkPassed = checkPassed and blocksGood and inodesGood
+
+
+    # validate group summary information for primary bgdt
+    summaryGood = True
+    totalFreeBlocks = 0
+    totalFreeInodes = 0
     
+    for entryNum,entry in enumerate(self._bgdt.entries):
+      blockBitmap = unpack("{0}B".format(self._superblock.blockSize), self._readBlock(entry.blockBitmapLocation))
+      inodeBitmap = unpack("{0}B".format(self._superblock.blockSize), self._readBlock(entry.inodeBitmapLocation))
+      usedBlockCount = 0
+      usedInodeCount = 0
+      dirCount = 0
+      index = 0
+      
+      maxBlocks = self._superblock.numBlocksPerGroup
+      maxInodes = self._superblock.numInodesPerGroup
+      if entryNum == self._superblock.numBlockGroups - 1:
+        maxBlocks = self._superblock.numBlocks - ((self._superblock.numBlockGroups - 1) * self._superblock.numBlocksPerGroup) - self._superblock.firstDataBlockId
+        maxInodes = self._superblock.numInodes - ((self._superblock.numBlockGroups - 1) * self._superblock.numInodesPerGroup)
+        
+      for i in range(self.blockSize):
+        for j in range(8):
+          if index < maxBlocks and (1 << j) & blockBitmap[i] != 0:
+            usedBlockCount += 1
+          if index < maxInodes and (1 << j) & inodeBitmap[i] != 0:
+            usedInodeCount += 1
+            inodeNum = (entryNum * self._superblock.numInodesPerGroup) + (i * 8) + j + 1
+            inode = self._readInode(inodeNum)
+            if (inode.mode & 0x4000) == 0x4000:
+              dirCount += 1
+          index += 1
+
+
+      if dirCount != entry.numInodesAsDirs:
+        summaryGood = False
+        report.messages.append("Group {0} has wrong directories count. Read {1} but counted {2}.".format(entryNum, entry.numInodesAsDirs, dirCount))
+
+      if maxBlocks - usedBlockCount != entry.numFreeBlocks:
+        summaryGood = False
+        report.messages.append("Group {0} has wrong free block count. Read {1} but counted {2}.".format(entryNum, entry.numFreeBlocks, maxBlocks - usedBlockCount))
+
+      if maxInodes - usedInodeCount != entry.numFreeInodes:
+        summaryGood = False
+        report.messages.append("Group {0} has wrong free inode count. Read {1} but counted {2}.".format(entryNum, entry.numFreeInodes, maxInodes - usedInodeCount))
+
+      totalFreeBlocks += (maxBlocks - usedBlockCount)
+      totalFreeInodes += (maxInodes - usedInodeCount)
+
+    if totalFreeBlocks != self._superblock.numFreeBlocks:
+      summaryGood = False
+      report.messages.append("Wrong free block count. Read {0} but counted {1}.".format(self._superblock.numFreeBlocks, totalFreeBlocks))
+
+    if totalFreeInodes != self._superblock.numFreeInodes:
+      summaryGood = False
+      report.messages.append("Wrong free inode count. Read {0} but counted {1}.".format(self._superblock.numFreeInodes, totalFreeInodes))
+
+    
+    
+    if summaryGood:
+      report.messages.append("Group summary information looks good.")
+
+    checkPassed = checkPassed and summaryGood
+
+
+
     if checkPassed:
       report.messages.append("[SUCCESS] Integrity check passed.")
     
