@@ -49,7 +49,7 @@ class _Inode(object):
   @property
   def numDataBlocks(self):
     """Gets the number of blocks used for only data inside the inode."""
-    return int(ceil(self._size / self._superblock.blockSize))
+    return int(ceil(float(self._size) / self._superblock.blockSize))
 
   @property
   def mode(self):
